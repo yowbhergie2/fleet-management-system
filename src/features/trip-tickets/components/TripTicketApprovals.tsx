@@ -3,6 +3,7 @@ import {
   collection,
   doc,
   getDocs,
+  getDoc,
   orderBy,
   query,
   updateDoc,
@@ -40,6 +41,9 @@ export function TripTicketApprovals() {
   const [controlInput, setControlInput] = useState('');
   const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isActing, setIsActing] = useState(false);
+  const [vehicleData, setVehicleData] = useState<{ dpwhNumber: string; plateNumber: string } | null>(null);
+  const [signatoryMap, setSignatoryMap] = useState<Record<string, { name: string; position: string }>>({});
+  const [approverMap, setApproverMap] = useState<Record<string, { name: string; position: string }>>({});
 
   const loadTickets = async () => {
     if (!user?.organizationId) return;
@@ -66,6 +70,71 @@ export function TripTicketApprovals() {
     loadTickets();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.organizationId]);
+
+  useEffect(() => {
+    const loadSignatories = async () => {
+      if (!user?.organizationId) return;
+      try {
+        const snap = await getDocs(query(collection(db, 'signatories'), where('organizationId', '==', user.organizationId)));
+        const map: Record<string, { name: string; position: string }> = {};
+        snap.docs.forEach((d) => {
+          const data = d.data() as any;
+          map[d.id] = {
+            name: (data.name || '').toString(),
+            position: (data.position || '').toString(),
+          };
+        });
+        setSignatoryMap(map);
+
+        const approverSnap = await getDocs(
+          query(collection(db, 'approving_authorities'), where('organizationId', '==', user.organizationId))
+        );
+        const amap: Record<string, { name: string; position: string }> = {};
+        approverSnap.docs.forEach((d) => {
+          const data = d.data() as any;
+          const officerId = data.officerId as string;
+          const officer = map[officerId] || { name: '', position: '' };
+          amap[d.id] = {
+            name: officer.name || (data.name || '').toString(),
+            position: officer.position || (data.position || '').toString(),
+          };
+        });
+        setApproverMap(amap);
+      } catch (err) {
+        console.error('Failed to load signatories', err);
+      }
+    };
+    loadSignatories();
+  }, [user?.organizationId]);
+
+  // Load vehicle data when a ticket is selected
+  useEffect(() => {
+    const loadVehicleData = async () => {
+      if (!selected?.vehicleId) {
+        setVehicleData(null);
+        return;
+      }
+      try {
+        console.log('Loading vehicle data for ID:', selected.vehicleId);
+        const vehicleDoc = await getDoc(doc(db, 'vehicles', selected.vehicleId));
+        if (vehicleDoc.exists()) {
+          const data = vehicleDoc.data();
+          console.log('Vehicle found:', { dpwhNumber: data.dpwhNumber, plateNumber: data.plateNumber });
+          setVehicleData({
+            dpwhNumber: data.dpwhNumber || '',
+            plateNumber: data.plateNumber || '',
+          });
+        } else {
+          console.warn('Vehicle document does not exist for ID:', selected.vehicleId);
+          setVehicleData(null);
+        }
+      } catch (err) {
+        console.error('Failed to load vehicle data for ID:', selected.vehicleId, err);
+        setVehicleData(null);
+      }
+    };
+    loadVehicleData();
+  }, [selected?.vehicleId]);
 
   const parseControl = (value: string) => {
     const match = /^DTT-(\d{4})-(\d{4})$/.exec(value.trim().toUpperCase());
@@ -213,19 +282,27 @@ export function TripTicketApprovals() {
 
   const pdfData = useMemo(() => {
     if (!selected) return null;
+    const recommending = signatoryMap[(selected as any).recommendingOfficerId || ''];
+    const approving =
+      approverMap[(selected as any).approvingAuthorityId || ''] ||
+      signatoryMap[(selected as any).approvingAuthorityId || ''];
     return {
       divisionOffice: selected.divisionOffice,
       destination: selected.destination,
       purposes: selected.purposes || [],
       periodCoveredFrom: selected.periodCoveredFrom as any,
       periodCoveredTo: selected.periodCoveredTo as any,
-      approvingAuthorityName: selected.approvingAuthorityName || '',
+      approvingAuthorityName: approving?.name || selected.approvingAuthorityName || '',
+      approvingAuthorityPosition: approving?.position || '',
       authorityPrefix: selected.authorityPrefix || '',
-      recommendingOfficerName: selected.recommendingOfficerName || '',
+      recommendingOfficerName: recommending?.name || selected.recommendingOfficerName || '',
+      recommendingOfficerPosition: recommending?.position || '',
       vehicleId: selected.vehicleId,
+      dpwhNumber: vehicleData?.dpwhNumber || '',
+      plateNumber: vehicleData?.plateNumber || '',
       authorizedPassengers: selected.authorizedPassengers || [],
     };
-  }, [selected]);
+  }, [selected, vehicleData, signatoryMap, approverMap]);
 
   return (
     <div className="space-y-4">

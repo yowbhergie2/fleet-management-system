@@ -49,10 +49,11 @@ export function TripTicketForm({ onSubmit, onGeneratePDF, isLoading = false, ini
   const [isSubmittingFinal, setIsSubmittingFinal] = useState(false);
   const [officeSignatoryMap, setOfficeSignatoryMap] = useState<Record<string, string>>({});
   const [recommendingOfficerName, setRecommendingOfficerName] = useState<string>('');
+  const [signatoryDetails, setSignatoryDetails] = useState<Record<string, { name: string; position: string }>>({});
   const [divisionOptions, setDivisionOptions] = useState<{ value: string; label: string }[]>([]);
   const [vehicleOptions, setVehicleOptions] = useState<{ value: string; label: string }[]>([]);
   const [signatoryOptions, setSignatoryOptions] = useState<{ value: string; label: string }[]>([]);
-  const [approverOptions, setApproverOptions] = useState<{ value: string; label: string; prefix?: string }[]>([]);
+  const [approverOptions, setApproverOptions] = useState<{ value: string; label: string; prefix?: string; officerId?: string; position?: string }[]>([]);
   const [vehicleFilter, setVehicleFilter] = useState('');
   const [lookupLoading, setLookupLoading] = useState(false);
   const [destinationSuggestions, setDestinationSuggestions] = useState<string[]>([]);
@@ -61,6 +62,7 @@ export function TripTicketForm({ onSubmit, onGeneratePDF, isLoading = false, ini
   const [showDestinationDropdown, setShowDestinationDropdown] = useState(false);
   const [showPurposeDropdown, setShowPurposeDropdown] = useState(false);
   const [activePassengerDropdown, setActivePassengerDropdown] = useState<number | null>(null);
+  const driverDisplayName = (isEditMode && (initialData as any)?.driverName) || user?.displayName || '';
 
   const today = formatDateForInput(getCurrentPHTime());
 
@@ -192,7 +194,7 @@ export function TripTicketForm({ onSubmit, onGeneratePDF, isLoading = false, ini
 
   // Populate form with initial data when editing
   useEffect(() => {
-    if (initialData && isEditMode) {
+    if (initialData && isEditMode && !lookupLoading) {
       // Cast to any to access fields that might exist in the database but not in TripTicketFormData
       const data = initialData as any;
 
@@ -216,7 +218,7 @@ export function TripTicketForm({ onSubmit, onGeneratePDF, isLoading = false, ini
         setPassengers(data.authorizedPassengers);
       }
     }
-  }, [initialData, isEditMode, reset, today]);
+  }, [initialData, isEditMode, lookupLoading, reset, today]);
 
   useEffect(() => {
     const loadOptions = async () => {
@@ -273,10 +275,18 @@ export function TripTicketForm({ onSubmit, onGeneratePDF, isLoading = false, ini
         const signatoriesSnap = await getDocs(
           query(collection(db, 'signatories'), where('organizationId', '==', user.organizationId))
         );
-        const signatories = signatoriesSnap.docs.map((doc) => ({
-          value: doc.id,
-          label: ((doc.data().name as string) || 'Signatory').toUpperCase(),
-        }));
+        const signatoryMap: Record<string, { name: string; position: string }> = {};
+        const signatories = signatoriesSnap.docs.map((doc) => {
+          const data = doc.data() as any;
+          const name = ((data.name as string) || 'Signatory').toUpperCase();
+          const position = (data.position || '').toString();
+          signatoryMap[doc.id] = { name, position };
+          return {
+            value: doc.id,
+            label: name,
+          };
+        });
+        setSignatoryDetails(signatoryMap);
         setSignatoryOptions(signatories);
 
         const approversSnap = await getDocs(
@@ -284,18 +294,25 @@ export function TripTicketForm({ onSubmit, onGeneratePDF, isLoading = false, ini
         );
         const approvers = approversSnap.docs.map((doc) => {
           const data = doc.data() as any;
-          const officerLabel = signatories.find((s) => s.value === data.officerId)?.label || 'APPROVER';
+          const officerDetails = signatoryMap[data.officerId] || { name: 'APPROVER', position: '' };
+          const officerLabel = officerDetails.name || 'APPROVER';
           return {
             value: doc.id,
             label: `${officerLabel}`.toUpperCase(),
             prefix: data.prefix || '',
+            officerId: data.officerId,
+            position: officerDetails.position,
           };
         });
         setApproverOptions(approvers);
 
         if (approvers.length > 0) {
           const first = approvers[0];
-          reset((prev) => ({ ...prev, approvingAuthorityId: first.value, authorityPrefix: first.prefix || '' }));
+          const currentApprover = getValues('approvingAuthorityId');
+          if (!currentApprover) {
+            setValue('approvingAuthorityId', first.value, { shouldValidate: true });
+            setValue('authorityPrefix', first.prefix || '', { shouldValidate: false });
+          }
         }
       } catch (err) {
         console.error('Failed to load lookups', err);
@@ -355,9 +372,17 @@ export function TripTicketForm({ onSubmit, onGeneratePDF, isLoading = false, ini
       ? data.purposes.split('\n').filter((p: string) => p.trim() !== '')
       : [];
 
-    const approvingName = approverOptions.find((a) => a.value === data.approvingAuthorityId)?.label || '';
+    const approvingOption = approverOptions.find((a) => a.value === data.approvingAuthorityId);
+    const approvingSignatory = approvingOption?.officerId ? signatoryDetails[approvingOption.officerId] : undefined;
+    const approvingPosition = approvingSignatory?.position || '';
+    const approvingNameFromSignatory = approvingSignatory?.name || '';
+    const approvingName =
+      approvingNameFromSignatory ||
+      approverOptions.find((a) => a.value === data.approvingAuthorityId)?.label ||
+      '';
     const recommendingName =
       recommendingOfficerName || signatoryOptions.find((s) => s.value === data.recommendingOfficerId)?.label || '';
+    const recommendingPosition = signatoryDetails[data.recommendingOfficerId || '']?.position || '';
 
     const formData: TripTicketFormData & {
       status: 'pending_approval';
@@ -368,8 +393,12 @@ export function TripTicketForm({ onSubmit, onGeneratePDF, isLoading = false, ini
       purposes: purposesList,
       authorizedPassengers: validPassengers,
       status,
+      approvingAuthorityId: data.approvingAuthorityId,
+      recommendingOfficerId: data.recommendingOfficerId,
       approvingAuthorityName: approvingName,
+      approvingAuthorityPosition: approvingPosition,
       recommendingOfficerName: recommendingName,
+      recommendingOfficerPosition: recommendingPosition,
     };
 
     return formData;
@@ -425,6 +454,20 @@ export function TripTicketForm({ onSubmit, onGeneratePDF, isLoading = false, ini
       ...data,
       purposes: data.purposes.split('\n').filter((p: string) => p.trim() !== ''),
       authorizedPassengers: validPassengers,
+      approvingAuthorityId: data.approvingAuthorityId,
+      recommendingOfficerId: data.recommendingOfficerId,
+      approvingAuthorityName:
+        signatoryDetails[approverOptions.find((a) => a.value === data.approvingAuthorityId)?.officerId || '']?.name ||
+        approverOptions.find((a) => a.value === data.approvingAuthorityId)?.label ||
+        '',
+      approvingAuthorityPosition:
+        signatoryDetails[approverOptions.find((a) => a.value === data.approvingAuthorityId)?.officerId || '']?.position || '',
+      recommendingOfficerName:
+        signatoryDetails[data.recommendingOfficerId || '']?.name ||
+        recommendingOfficerName ||
+        signatoryOptions.find((s) => s.value === data.recommendingOfficerId)?.label ||
+        '',
+      recommendingOfficerPosition: signatoryDetails[data.recommendingOfficerId || '']?.position || '',
     };
     onGeneratePDF?.(formData);
   };
@@ -442,6 +485,11 @@ export function TripTicketForm({ onSubmit, onGeneratePDF, isLoading = false, ini
           <p className="text-blue-100 mt-2">Capture trip details, passengers, and approvals in one flow.</p>
         </CardHeader>
         <CardContent className="space-y-5 pt-6">
+          {lookupLoading && isEditMode && (
+            <div className="rounded-lg px-4 py-3 text-sm bg-blue-50 text-blue-800 border border-blue-200">
+              Loading form data...
+            </div>
+          )}
           {actionMessage && (
             <div
               className={`rounded-lg px-4 py-3 text-sm ${
@@ -458,7 +506,7 @@ export function TripTicketForm({ onSubmit, onGeneratePDF, isLoading = false, ini
               <Input
                 label="Driver"
                 placeholder="Driver name"
-                value={(user?.displayName || '').toUpperCase()}
+                value={driverDisplayName.toUpperCase()}
                 readOnly
                 disabled
                 toUppercase
@@ -524,7 +572,7 @@ export function TripTicketForm({ onSubmit, onGeneratePDF, isLoading = false, ini
                     label="Period Covered From"
                     error={errors.periodCoveredFrom?.message}
                     required
-                    disabled={isLoading}
+                    disabled={lookupLoading || isLoading}
                     value={field.value}
                     onChange={field.onChange}
                   />
@@ -539,7 +587,7 @@ export function TripTicketForm({ onSubmit, onGeneratePDF, isLoading = false, ini
                     label="Period Covered To"
                     error={errors.periodCoveredTo?.message}
                     required
-                    disabled={isLoading}
+                    disabled={lookupLoading || isLoading}
                     value={field.value}
                     onChange={field.onChange}
                   />
@@ -560,7 +608,7 @@ export function TripTicketForm({ onSubmit, onGeneratePDF, isLoading = false, ini
                 </CardTitle>
                 <p className="text-sm text-gray-600 mt-1">Add all passengers for this trip</p>
               </div>
-              <Button type="button" variant="outline" size="sm" onClick={addPassenger} className="shadow-sm" disabled={isLoading}>
+              <Button type="button" variant="outline" size="sm" onClick={addPassenger} className="shadow-sm" disabled={lookupLoading || isLoading}>
                 <Plus className="h-4 w-4 mr-2" />
                 Add Passenger
               </Button>
@@ -579,7 +627,7 @@ export function TripTicketForm({ onSubmit, onGeneratePDF, isLoading = false, ini
                     placeholder="Passenger name"
                     toUppercase
                     value={passenger.name}
-                    disabled={isLoading}
+                    disabled={lookupLoading || isLoading}
                     onChange={(e) => updatePassenger(index, e.target.value)}
                     onFocus={() => setActivePassengerDropdown(index)}
                     onBlur={() => setTimeout(() => setActivePassengerDropdown(null), 120)}
@@ -608,7 +656,7 @@ export function TripTicketForm({ onSubmit, onGeneratePDF, isLoading = false, ini
                   variant="ghost"
                   size="sm"
                   onClick={() => removePassenger(index)}
-                  disabled={passengers.length === 1}
+                  disabled={lookupLoading || isLoading || passengers.length === 1}
                   className="text-red-500 hover:text-red-700"
                 >
                   <Trash2 className="h-4 w-4" />
@@ -625,16 +673,28 @@ export function TripTicketForm({ onSubmit, onGeneratePDF, isLoading = false, ini
           </CardHeader>
           <CardContent className="space-y-5 pt-6">
             <div className="relative">
-              <Input
-                label="Destination"
-                placeholder="e.g., City Hall, Quezon City"
-                error={errors.destination?.message}
-                required
-                disabled={isLoading}
-                {...register('destination')}
-                toUppercase
-                onFocus={() => setShowDestinationDropdown(true)}
-                onBlur={() => setTimeout(() => setShowDestinationDropdown(false), 120)}
+              <Controller
+                name="destination"
+                control={control}
+                render={({ field }) => (
+                  <Input
+                    label="Destination"
+                    placeholder="e.g., City Hall, Quezon City"
+                    error={errors.destination?.message}
+                    required
+                    disabled={lookupLoading || isLoading}
+                    toUppercase
+                    value={field.value}
+                    onChange={(e) => {
+                      field.onChange(e);
+                    }}
+                    onFocus={() => setShowDestinationDropdown(true)}
+                    onBlur={(e) => {
+                      field.onBlur();
+                      setTimeout(() => setShowDestinationDropdown(false), 120);
+                    }}
+                  />
+                )}
               />
               {showDestinationDropdown && filteredDestinationSuggestions.length > 0 && (
                 <div className="absolute z-20 mt-1 w-full rounded-xl border border-gray-200 bg-white shadow-lg max-h-56 overflow-auto">
@@ -662,7 +722,7 @@ export function TripTicketForm({ onSubmit, onGeneratePDF, isLoading = false, ini
               error={errors.purposes?.message}
               helperText="Enter each purpose on a separate line"
               required
-              disabled={isLoading}
+              disabled={lookupLoading || isLoading}
               {...register('purposes')}
               toUppercase
               onFocus={() => setShowPurposeDropdown(true)}
@@ -768,7 +828,7 @@ export function TripTicketForm({ onSubmit, onGeneratePDF, isLoading = false, ini
           type="button"
           variant="outline"
           onClick={handleCancel}
-          disabled={isLoading || isSubmittingFinal}
+          disabled={lookupLoading || isLoading || isSubmittingFinal}
           className="h-12 text-base font-semibold"
         >
           Cancel
@@ -778,7 +838,7 @@ export function TripTicketForm({ onSubmit, onGeneratePDF, isLoading = false, ini
             type="button"
             variant="outline"
             onClick={handleGeneratePDF}
-            disabled={isLoading || !isValid}
+            disabled={lookupLoading || isLoading || !isValid}
             className="h-12 text-base font-semibold shadow-md hover:shadow-lg transition-shadow"
           >
             <FileText className="h-5 w-5 mr-2" />
@@ -788,7 +848,7 @@ export function TripTicketForm({ onSubmit, onGeneratePDF, isLoading = false, ini
         <Button
           type="submit"
           isLoading={isSubmittingFinal || isLoading}
-          disabled={isLoading || !isValid}
+          disabled={lookupLoading || isLoading || !isValid}
           className="h-12 text-base font-semibold shadow-lg hover:shadow-xl transition-shadow"
         >
           {isSubmittingFinal ? (isEditMode ? 'Updating...' : 'Submitting...') : (isEditMode ? 'Update Trip Ticket' : 'Submit for Approval')}

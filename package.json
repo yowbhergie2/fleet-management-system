@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "generate-logos": "node scripts/generate-logo-constants.js",
+    "generate-fonts": "node scripts/generate-font-constants.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

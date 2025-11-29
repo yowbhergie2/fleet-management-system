@@ -122,11 +122,15 @@ export interface TripTicket {
   periodCoveredTo: Date;
 
   // Approval
-  approvingAuthorityId?: string;
+ approvingAuthorityId?: string;
   approvingAuthorityName?: string;
   authorityPrefix?: string;
+  approvingAuthorityPosition?: string;
+  approvingAuthorityId?: string;
+  recommendingOfficerId?: string;
   recommendingOfficerId?: string;
   recommendingOfficerName?: string;
+  recommendingOfficerPosition?: string;
 
   // Status
   status: TripTicketStatus;
@@ -206,6 +210,8 @@ export interface TripTicketActionRequest {
  */
 export interface TripTicketFormData {
   vehicleId: string;
+  approvingAuthorityId?: string;
+  recommendingOfficerId?: string;
   divisionOffice: string;
   authorizedPassengers: Passenger[];
   destination: string;
@@ -215,4 +221,6 @@ export interface TripTicketFormData {
   approvingAuthorityName: string;
   authorityPrefix?: string;
   recommendingOfficerName: string;
+  approvingAuthorityPosition?: string;
+  recommendingOfficerPosition?: string;
 }

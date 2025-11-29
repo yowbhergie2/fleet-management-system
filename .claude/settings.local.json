@@ -3,7 +3,12 @@
     "allow": [
       "Bash(npx tsc:*)",
       "Bash(npm install:*)",
-      "Bash(timeout 8 npm run dev:*)"
+      "Bash(timeout 8 npm run dev:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm run dev:*)",
+      "Bash(node scripts/convert-logos-to-base64.js:*)",
+      "Bash(node scripts/generate-logo-constants.js:*)",
+      "Bash(node scripts/generate-font-constants.js:*)"
     ],
     "deny": [],
     "ask": []

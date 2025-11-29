@@ -121,37 +121,36 @@ export function TripTicketsPage() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <section className="rounded-xl bg-white shadow-sm border border-gray-100 overflow-hidden">
-          <div className="p-5 bg-white">
-            <div className="flex flex-col gap-3">
-              <div className="flex items-start gap-3">
-                <div className="h-12 w-12 flex-shrink-0 rounded-xl bg-blue-50 flex items-center justify-center">
-                  <FileText className="h-6 w-6 text-blue-600" />
+        <section className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-sky-500 via-indigo-600 to-blue-700 text-white shadow-xl">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.15),transparent_35%)]" />
+          <div className="absolute -bottom-16 -right-16 h-64 w-64 rounded-full bg-white/10 blur-3xl" />
+          <div className="relative p-8 lg:p-10">
+            <div className="max-w-3xl">
+              <p className="uppercase text-xs font-semibold tracking-[0.15em] text-blue-100">
+                Trip Tickets
+              </p>
+              <h1 className="text-3xl lg:text-4xl font-bold mt-2 leading-tight">
+                Driver&apos;s Trip Ticket workspace
+              </h1>
+              {user?.displayName && (
+                <div className="flex items-center gap-2 mt-4 text-blue-100">
+                  <User className="h-4 w-4" />
+                  <span className="text-sm font-medium">{user.displayName.toUpperCase()}</span>
                 </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm text-gray-500">Trip Tickets</p>
-                  <h1 className="text-xl font-bold text-gray-900 mt-0.5">
-                    Driver&apos;s Trip Ticket workspace
-                  </h1>
-                  {user?.displayName && (
-                    <div className="flex items-center gap-2 mt-2 text-sm text-gray-600">
-                      <User className="h-4 w-4 text-gray-400" />
-                      <span>{user.displayName}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
+              )}
+              <div className="flex flex-wrap gap-3 mt-6">
                 {tabs.map((tab) => (
-                  <Button
+                  <button
                     key={tab.key}
-                    variant={activeTab === tab.key ? 'primary' : 'outline'}
-                    size="sm"
+                    className={`px-4 py-2 rounded-lg font-medium transition-all ${
+                      activeTab === tab.key
+                        ? 'bg-white text-blue-700 hover:bg-blue-50 shadow-md'
+                        : 'border-2 border-white/60 text-white hover:bg-white/10'
+                    }`}
                     onClick={() => setActiveTab(tab.key)}
                   >
                     {tab.label}
-                  </Button>
+                  </button>
                 ))}
               </div>
             </div>

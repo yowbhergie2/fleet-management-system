@@ -1,9 +1,7 @@
 import jsPDF from 'jspdf';
 import type { TripTicketFormData } from '@/types';
-
-// Placeholders for logos – replace with real base64 strings when available
-const DPWH_LOGO_BASE64 = '';
-const BAGONG_PILIPINAS_LOGO_BASE64 = '';
+import { DPWH_LOGO_BASE64, BAGONG_PILIPINAS_LOGO_BASE64 } from './logo-constants';
+import { TAHOMA_FONT_BASE64, TAHOMA_BOLD_FONT_BASE64 } from './font-constants';
 
 const monthNames = [
   'January',
@@ -55,6 +53,24 @@ type RenderPdfParams = {
 
 function renderDttPdf({ data, controlNumber }: RenderPdfParams) {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+  // Add Tahoma fonts to the PDF
+  try {
+    // Add the Tahoma font files to the virtual file system
+    doc.addFileToVFS('Tahoma.ttf', TAHOMA_FONT_BASE64);
+    doc.addFileToVFS('TahomaBold.ttf', TAHOMA_BOLD_FONT_BASE64);
+
+    // Register both normal and bold fonts with their actual font files
+    doc.addFont('Tahoma.ttf', 'Tahoma', 'normal');
+    doc.addFont('TahomaBold.ttf', 'Tahoma', 'bold');
+
+    // Set Tahoma as the default font
+    doc.setFont('Tahoma', 'normal');
+  } catch (e) {
+    console.warn('Failed to load Tahoma fonts, falling back to default:', e);
+    // Fallback to default font if Tahoma fails to load
+  }
+
   const pageWidth = doc.internal.pageSize.getWidth();
 
   const topMargin = 12.7;
@@ -67,22 +83,22 @@ function renderDttPdf({ data, controlNumber }: RenderPdfParams) {
   let yPos = topMargin;
 
   doc.setFontSize(9);
-  doc.setFont(undefined, 'normal');
+  doc.setFont('Tahoma', 'normal');
   doc.text('Republic of the Philippines', 105, yPos, { align: 'center' });
   yPos += 4;
 
   doc.setFontSize(11);
-  doc.setFont(undefined, 'normal');
+  doc.setFont('Tahoma', 'normal');
   doc.text('DEPARTMENT OF PUBLIC WORKS AND HIGHWAYS', 105, yPos, { align: 'center' });
   yPos += 4;
 
   doc.setFontSize(11);
-  doc.setFont(undefined, 'bold');
+  doc.setFont('Tahoma', 'bold');
   doc.text('REGIONAL OFFICE II', 105, yPos, { align: 'center' });
   yPos += 3;
 
   doc.setFontSize(9);
-  doc.setFont(undefined, 'normal');
+  doc.setFont('Tahoma', 'normal');
   doc.text(
     'Dalan na Pavvurulun, Regional Government Center, Carig Sur, Tuguegarao City, Cagayan',
     105,
@@ -94,9 +110,13 @@ function renderDttPdf({ data, controlNumber }: RenderPdfParams) {
   const logoYPos = headerContentCenterY - logoHeight / 2;
 
   try {
-    if (DPWH_LOGO_BASE64) doc.addImage(DPWH_LOGO_BASE64, 'PNG', leftLogoX, logoYPos, logoWidth, logoHeight);
-    if (BAGONG_PILIPINAS_LOGO_BASE64)
-      doc.addImage(BAGONG_PILIPINAS_LOGO_BASE64, 'PNG', rightLogoX, logoYPos, logoWidth, logoHeight);
+    if (DPWH_LOGO_BASE64) {
+      doc.addImage(DPWH_LOGO_BASE64, 'JPEG', leftLogoX, logoYPos, logoWidth, logoHeight);
+    }
+    if (BAGONG_PILIPINAS_LOGO_BASE64) {
+      // Note: jsPDF may not support WEBP format directly, it will try to render it
+      doc.addImage(BAGONG_PILIPINAS_LOGO_BASE64, 'WEBP', rightLogoX, logoYPos, logoWidth, logoHeight);
+    }
   } catch (e) {
     console.warn('Logo loading failed:', e);
   }
@@ -104,12 +124,12 @@ function renderDttPdf({ data, controlNumber }: RenderPdfParams) {
   yPos += 8;
 
   doc.setFontSize(14);
-  doc.setFont(undefined, 'bold');
+  doc.setFont('Tahoma', 'bold');
   doc.text("DRIVER'S TRIP TICKET", 105, yPos, { align: 'center' });
   yPos += 10;
 
   doc.setFontSize(10);
-  doc.setFont(undefined, 'bold');
+  doc.setFont('Tahoma', 'bold');
   const dateStr = data.createdAt
     ? data.createdAt.toDate
       ? data.createdAt.toDate().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
@@ -118,71 +138,139 @@ function renderDttPdf({ data, controlNumber }: RenderPdfParams) {
   doc.text(dateStr, rightColumnX, yPos, { align: 'right' });
   yPos += 4;
 
-  doc.setFont(undefined, 'normal');
+  doc.setFont('Tahoma', 'normal');
   doc.setFontSize(9);
   doc.text('(Date)', rightColumnX, yPos, { align: 'right' });
   yPos += 4;
 
   doc.setTextColor(0, 128, 0);
-  doc.setFont(undefined, 'bold');
+  doc.setFont('Tahoma', 'bold');
   doc.text(`Control No.: ${controlNumber || '_________________'}`, rightColumnX, yPos, { align: 'right' });
   doc.setTextColor(0, 0, 0);
   yPos += 8;
 
   doc.setFontSize(10);
-  doc.setFont(undefined, 'normal');
+  doc.setFont('Tahoma', 'normal');
 
   const leftMargin = leftLogoX;
   const colonPos = 80;
   const valuePos = 85;
   const underlineWidth = 110;
+  const bodyFontSize = 10;
+  doc.setFontSize(bodyFontSize);
 
-  const addLabeledLine = (label: string, value: string) => {
+  const centerX = valuePos + underlineWidth / 2;
+
+  // Word-aware text splitting to avoid breaking words in the middle
+  const splitTextByWords = (text: string, maxWidth: number): string[] => {
+    const words = text.split(' ');
+    const lines: string[] = [];
+    let currentLine = '';
+
+    words.forEach((word) => {
+      const testLine = currentLine ? `${currentLine} ${word}` : word;
+      const testWidth = doc.getTextWidth(testLine);
+
+      if (testWidth > maxWidth && currentLine) {
+        // Current line is full, push it and start new line with current word
+        lines.push(currentLine);
+        currentLine = word;
+      } else {
+        // Word fits, add it to current line
+        currentLine = testLine;
+      }
+    });
+
+    // Push the last line if it has content
+    if (currentLine) {
+      lines.push(currentLine);
+    }
+
+    return lines.length > 0 ? lines : [' '];
+  };
+
+  const renderMultilineValue = (
+    lines: string[],
+    gapAfter: number = 1,
+    align: 'left' | 'center' | 'justify' = 'left',
+    bold: boolean = false
+  ) => {
+    // Tighter line spacing - use 4.5mm between lines
+    const lineHeight = 4.5;
+    const safeLines = lines.length > 0 ? lines : [' '];
+    safeLines.forEach((line, index) => {
+      doc.setFont('Tahoma', bold ? 'bold' : 'normal');
+      const anchorX = align === 'center' ? centerX : valuePos;
+      const isLastLine = index === safeLines.length - 1;
+
+      // For justified text, the last line should be left-aligned
+      const lineAlign = align === 'justify' && isLastLine ? 'left' : align;
+
+      const opts =
+        lineAlign === 'left'
+          ? undefined
+          : {
+              align: lineAlign === 'center' ? 'center' : 'justify',
+              maxWidth: underlineWidth,
+            };
+      doc.text(line, anchorX, yPos, opts as any);
+      doc.setFont('Tahoma', 'normal');
+      // Position underline below the text (baseline + 0.5mm offset for proper spacing)
+      doc.line(valuePos, yPos + 0.5, valuePos + underlineWidth, yPos + 0.5);
+      yPos += lineHeight;
+    });
+    yPos += gapAfter;
+  };
+
+  const addLabeledLine = (label: string, value: string, boldValue: boolean = false) => {
+    doc.setFont('Tahoma', 'normal');
     doc.text(label, leftMargin, yPos);
     doc.text(':', colonPos, yPos);
-    doc.setFont(undefined, 'bold');
+    doc.setFont('Tahoma', boldValue ? 'bold' : 'normal');
     doc.text(value, valuePos, yPos);
-    doc.setFont(undefined, 'normal');
-    doc.line(valuePos, yPos + 1, valuePos + underlineWidth, yPos + 1);
-    yPos += 6;
+    doc.setFont('Tahoma', 'normal');
+    // Position underline below the text (baseline + 0.5mm offset for proper spacing)
+    doc.line(valuePos, yPos + 0.5, valuePos + underlineWidth, yPos + 0.5);
+    yPos += 5; // slightly tighter spacing between single-line rows
   };
 
   const driverName = data.driverName || '';
-  addLabeledLine('1.  Name of Driver', driverName.toUpperCase());
+  addLabeledLine('1.  Name of Driver', driverName.toUpperCase(), true);
 
-  const vehicle = (data as any).vehicleDpwhNo || (data as any).plateNumber || (data as any).vehicleId || '';
-  addLabeledLine("2.  Gov't. Vehicle to be used", vehicle);
+  // Display DPWH number as primary identifier, fallback to plate number if not available
+  const vehicle = (data as any).vehicleDpwhNo || (data as any).dpwhNumber || (data as any).plateNumber || '';
+  addLabeledLine("2.  Gov't. Vehicle to be used", vehicle.toUpperCase());
 
+  doc.setFont('Tahoma', 'normal');
   doc.text('3.  Name of authorized passenger/s', leftMargin, yPos);
   doc.text(':', colonPos, yPos);
   const passengersArray =
     (data as any).passengers ||
     (data.authorizedPassengers || []).map((p) => (typeof p === 'string' ? p : p?.name || '')).filter(Boolean);
   const passengersText = passengersArray.length > 0 ? passengersArray.join(', ').toUpperCase() : '';
-  const passengerLines = doc.splitTextToSize(passengersText || ' ', underlineWidth);
-  doc.setFont(undefined, 'bold');
-  doc.text(passengerLines, valuePos, yPos);
-  doc.setFont(undefined, 'normal');
-  passengerLines.forEach((_, index) => doc.line(valuePos, yPos + 1 + index * 5, valuePos + underlineWidth, yPos + 1 + index * 5));
-  yPos += passengerLines.length * 5 + 1;
+  const passengerLines = splitTextByWords(passengersText || ' ', underlineWidth);
+  renderMultilineValue(passengerLines, 1, 'left', false);
 
   addLabeledLine('4.  Places to be visited/inspected', (data.destination || '').toUpperCase());
 
   const period = formatPeriodDates((data as any).periodCoveredFrom || (data as any).periodFrom, (data as any).periodCoveredTo || (data as any).periodTo);
   addLabeledLine('5.  Period Covered', period);
 
+  doc.setFont('Tahoma', 'normal');
   doc.text('6.  Purpose', leftMargin, yPos);
   doc.text(':', colonPos, yPos);
   const purposes = data.purposes && data.purposes.length > 0 ? data.purposes.join(', ') : '';
-  const purposeLines = doc.splitTextToSize(purposes || ' ', underlineWidth);
-  doc.setFont(undefined, 'bold');
-  doc.text(purposeLines, valuePos, yPos);
-  doc.setFont(undefined, 'normal');
-  purposeLines.forEach((_, index) => doc.line(valuePos, yPos + 1 + index * 5, valuePos + underlineWidth, yPos + 1 + index * 5));
-  yPos += purposeLines.length * 5 + 5;
+  const purposeLength = (purposes || '').length;
+  const purposeFontSize = purposeLength > 450 ? 8 : purposeLength > 250 ? 9 : bodyFontSize;
+  doc.setFontSize(purposeFontSize);
+  // Use word-aware splitting to prevent breaking words in the middle
+  const purposeLines = splitTextByWords(purposes || ' ', underlineWidth);
+  // Use justify alignment with last line left-aligned for professional appearance
+  renderMultilineValue(purposeLines, 3, 'justify', false);
+  doc.setFontSize(bodyFontSize);
 
   yPos += 3;
-  doc.setFont(undefined, 'normal');
+  doc.setFont('Tahoma', 'normal');
   doc.text('Recommending Approval:', leftMargin, yPos);
   doc.text('Approved:', 115, yPos);
 
@@ -202,19 +290,34 @@ function renderDttPdf({ data, controlNumber }: RenderPdfParams) {
     rightApprovalY += approvalLineSpacing * 3;
   }
 
-  doc.setFont(undefined, 'bold');
-  const recommendingOfficer = (data as any).recommendingOfficerName || '';
-  doc.text(recommendingOfficer.toUpperCase(), leftMargin, leftApprovalY);
-  const approvingAuthorityName = (data as any).approvingAuthorityName || '';
-  doc.text(approvingAuthorityName.toUpperCase(), 115, rightApprovalY);
+  const renderSignatoryBlock = (x: number, y: number, name: string, position: string, lineGap: number) => {
+    const lines = (position || '')
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
 
-  doc.setFont(undefined, 'normal');
-  leftApprovalY += approvalLineSpacing;
-  rightApprovalY += approvalLineSpacing;
+    doc.setFont('Tahoma', 'bold');
+    doc.text((name || '').toUpperCase(), x, y, { align: 'left' });
+    doc.setFont('Tahoma', 'normal');
+
+    let cursorY = y + lineGap;
+    lines.forEach((line) => {
+      doc.text(line, x, cursorY, { align: 'left' });
+      cursorY += lineGap;
+    });
+
+    return cursorY;
+  };
+
+  const recommendingOfficer = (data as any).recommendingOfficerName || '';
   const recommendingPosition = (data as any).recommendingOfficerPosition || '';
-  doc.text(recommendingPosition, leftMargin, leftApprovalY);
+  const approvingAuthorityName = (data as any).approvingAuthorityName || '';
   const approvingAuthorityPosition = (data as any).approvingAuthorityPosition || '';
-  doc.text(approvingAuthorityPosition, 115, rightApprovalY);
+
+  const leftEndY = renderSignatoryBlock(leftMargin, leftApprovalY, recommendingOfficer, recommendingPosition, approvalLineSpacing);
+  const rightEndY = renderSignatoryBlock(115, rightApprovalY, approvingAuthorityName, approvingAuthorityPosition, approvalLineSpacing);
+  leftApprovalY = leftEndY;
+  rightApprovalY = rightEndY;
 
   yPos = Math.max(leftApprovalY, rightApprovalY) + 10;
 
@@ -299,12 +402,12 @@ function renderDttPdf({ data, controlNumber }: RenderPdfParams) {
     doc.line(startX, y, signatureRightX, y);
   };
 
-  doc.setFont(undefined, 'bold');
+  doc.setFont('Tahoma', 'bold');
   const driverNameForSignature = driverName ? driverName.toUpperCase() : '';
   doc.text(driverNameForSignature, signatureRightX, yPos, { align: 'right' });
   const driverLineWidth = computeSignatureLineWidth(driverNameForSignature);
   yPos += 1;
-  doc.setFont(undefined, 'normal');
+  doc.setFont('Tahoma', 'normal');
   drawSignatureLine(driverLineWidth, yPos);
   yPos += 4;
   doc.text('Driver', signatureRightX, yPos, { align: 'right' });
@@ -318,11 +421,11 @@ function renderDttPdf({ data, controlNumber }: RenderPdfParams) {
     passengerText = passengersArray.map((p: string) => p.toUpperCase()).join(' / ');
   }
 
-  doc.setFont(undefined, 'bold');
+  doc.setFont('Tahoma', 'bold');
   doc.text(passengerText, signatureRightX, yPos, { align: 'right' });
   const passengerLineWidth = computeSignatureLineWidth(passengerText);
   yPos += 1;
-  doc.setFont(undefined, 'normal');
+  doc.setFont('Tahoma', 'normal');
   drawSignatureLine(passengerLineWidth, yPos);
   yPos += 4;
   doc.text('Passenger/s', signatureRightX, yPos, { align: 'right' });

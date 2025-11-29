@@ -39,7 +39,9 @@ export function MyTripsPage() {
   const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [officeMap, setOfficeMap] = useState<Record<string, string>>({});
-  const [vehicleMap, setVehicleMap] = useState<Record<string, string>>({});
+  const [vehicleMap, setVehicleMap] = useState<Record<string, { dpwhNumber: string; plateNumber: string }>>({});
+  const [signatoryMap, setSignatoryMap] = useState<Record<string, { name: string; position: string }>>({});
+  const [approverMap, setApproverMap] = useState<Record<string, { name: string; position: string }>>({});
   const [searchTerm, setSearchTerm] = useState('');
   const isDriver = user?.role === 'driver';
   const formatDate = (value?: string | Date) => (value ? new Date(value as any).toLocaleDateString() : '-');
@@ -72,12 +74,43 @@ export function MyTripsPage() {
       const vehicleSnap = await getDocs(
         query(collection(db, 'vehicles'), where('organizationId', '==', user.organizationId))
       );
-      const vmap: Record<string, string> = {};
+      const vmap: Record<string, { dpwhNumber: string; plateNumber: string }> = {};
       vehicleSnap.docs.forEach((d) => {
         const data = d.data() as any;
-        vmap[d.id] = data.dpwhNumber || data.plateNumber || d.id;
+        vmap[d.id] = {
+          dpwhNumber: data.dpwhNumber || '',
+          plateNumber: data.plateNumber || '',
+        };
       });
       setVehicleMap(vmap);
+
+      const signatorySnap = await getDocs(
+        query(collection(db, 'signatories'), where('organizationId', '==', user.organizationId))
+      );
+      const smap: Record<string, { name: string; position: string }> = {};
+      signatorySnap.docs.forEach((d) => {
+        const data = d.data() as any;
+        smap[d.id] = {
+          name: (data.name || '').toString(),
+          position: (data.position || '').toString(),
+        };
+      });
+      setSignatoryMap(smap);
+
+      const approverSnap = await getDocs(
+        query(collection(db, 'approving_authorities'), where('organizationId', '==', user.organizationId))
+      );
+      const amap: Record<string, { name: string; position: string }> = {};
+      approverSnap.docs.forEach((d) => {
+        const data = d.data() as any;
+        const officerId = data.officerId as string;
+        const officer = smap[officerId] || { name: '', position: '' };
+        amap[d.id] = {
+          name: officer.name || (data.name || '').toString(),
+          position: officer.position || (data.position || '').toString(),
+        };
+      });
+      setApproverMap(amap);
     } catch (err) {
       console.error('Failed to load trip tickets', err);
       setTickets([]);
@@ -101,7 +134,8 @@ export function MyTripsPage() {
       const dest = (t.destination || '').toLowerCase();
       const drv = (t.driverName || '').toLowerCase();
       const off = (officeMap[t.divisionOffice] || t.divisionOffice || '').toLowerCase();
-      const veh = (vehicleMap[t.vehicleId] || t.vehicleId || '').toLowerCase();
+      const vehData = vehicleMap[t.vehicleId];
+      const veh = vehData ? `${vehData.dpwhNumber} ${vehData.plateNumber}`.toLowerCase() : t.vehicleId.toLowerCase();
       return ref.includes(q) || dest.includes(q) || drv.includes(q) || off.includes(q) || veh.includes(q);
     });
   }, [activeTab, tickets, searchTerm, officeMap, vehicleMap]);
@@ -286,7 +320,13 @@ export function MyTripsPage() {
                     )}
                     <div className="flex items-center gap-2">
                       <Car className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                      <span className="truncate">{vehicleMap[ticket.vehicleId] || ticket.vehicleId || 'Vehicle'}</span>
+                      <span className="truncate">
+                        {vehicleMap[ticket.vehicleId]?.dpwhNumber ||
+                          vehicleMap[ticket.vehicleId]?.plateNumber ||
+                          ticket.plateNumber ||
+                          ticket.vehicleId ||
+                          'Vehicle'}
+                      </span>
                     </div>
                     <div className="flex items-center gap-2">
                       <Clock3 className="h-4 w-4 text-gray-400 flex-shrink-0" />
@@ -386,7 +426,12 @@ export function MyTripsPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() =>
+                        onClick={() => {
+                              const vehData = vehicleMap[ticket.vehicleId];
+                              const recommending = signatoryMap[(ticket as any).recommendingOfficerId || ''];
+                              const approving =
+                                approverMap[(ticket as any).approvingAuthorityId || ''] ||
+                                signatoryMap[(ticket as any).approvingAuthorityId || ''];
                               previewTripTicketPDF(
                                 {
                                   divisionOffice: ticket.divisionOffice,
@@ -394,16 +439,20 @@ export function MyTripsPage() {
                                   purposes: ticket.purposes || [],
                                   periodCoveredFrom: ticket.periodCoveredFrom as any,
                                   periodCoveredTo: ticket.periodCoveredTo as any,
-                                  approvingAuthorityName: ticket.approvingAuthorityName || '',
+                                  approvingAuthorityName: approving?.name || ticket.approvingAuthorityName || '',
                                   authorityPrefix: ticket.authorityPrefix || '',
-                                  recommendingOfficerName: ticket.recommendingOfficerName || '',
+                                  recommendingOfficerName: recommending?.name || ticket.recommendingOfficerName || '',
+                                  approvingAuthorityPosition: approving?.position || '',
+                                  recommendingOfficerPosition: recommending?.position || '',
                                   vehicleId: ticket.vehicleId,
+                                  dpwhNumber: vehData?.dpwhNumber || '',
+                                  plateNumber: vehData?.plateNumber || '',
                                   authorizedPassengers: ticket.authorizedPassengers || [],
-                                },
+                                } as any,
                                 ticket.serialNumber || 'DTT',
                                 ticket.driverName || 'Driver'
-                              )
-                            }
+                              );
+                            }}
                           >
                             PDF
                           </Button>
@@ -497,7 +546,13 @@ export function MyTripsPage() {
                   </div>
                   <div className="bg-gray-50 rounded-lg p-3">
                     <p className="text-xs uppercase text-gray-500 font-semibold mb-1">Vehicle</p>
-                    <p className="font-semibold text-gray-900">{vehicleMap[selected.vehicleId] || selected.vehicleId || '-'}</p>
+                    <p className="font-semibold text-gray-900">
+                      {vehicleMap[selected.vehicleId]?.dpwhNumber ||
+                        vehicleMap[selected.vehicleId]?.plateNumber ||
+                        selected.plateNumber ||
+                        selected.vehicleId ||
+                        '-'}
+                    </p>
                   </div>
                   <div className="bg-gray-50 rounded-lg p-3">
                     <p className="text-xs uppercase text-gray-500 font-semibold mb-1">Destination</p>
