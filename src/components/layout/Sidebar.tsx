@@ -12,8 +12,8 @@ import {
   X,
   Fuel,
   Building2,
-  FileContract,
-  DollarSign,
+  ScrollText,
+  Gauge,
 } from 'lucide-react';
 import { logout } from '@/lib/auth';
 import { useUser } from '@/stores/authStore';
@@ -29,6 +29,16 @@ export function Sidebar({ isCollapsed, isOpen, setIsCollapsed, onClose }: Sideba
   const navigate = useNavigate();
   const location = useLocation();
   const user = useUser();
+
+  const formatRole = (role: string) => {
+    const map: Record<string, string> = {
+      spms: 'SPMS',
+      emd: 'EMD',
+      admin: 'Admin',
+      driver: 'Driver',
+    };
+    return map[role] || role.toUpperCase();
+  };
 
   const handleNavigate = (path: string) => {
     navigate(path);
@@ -49,8 +59,8 @@ export function Sidebar({ isCollapsed, isOpen, setIsCollapsed, onClose }: Sideba
     // Fuel Requisition Module
     { icon: Fuel, label: 'Fuel Requisitions', path: '/fuel-requisitions', roles: ['admin', 'driver', 'spms', 'emd'] },
     { icon: Building2, label: 'Suppliers', path: '/suppliers', roles: ['admin'] },
-    { icon: FileContract, label: 'Contracts', path: '/contracts', roles: ['admin', 'spms'] },
-    { icon: DollarSign, label: 'Fuel Prices', path: '/fuel-prices', roles: ['admin', 'spms'] },
+    { icon: ScrollText, label: 'Contracts', path: '/contracts', roles: ['admin', 'spms'] },
+    { icon: Gauge, label: 'Fuel Prices', path: '/fuel-prices', roles: ['admin', 'spms'] },
 
     // Admin/System
     { icon: Truck, label: 'Vehicles', path: '/vehicles', roles: ['admin'] },
@@ -145,7 +155,7 @@ export function Sidebar({ isCollapsed, isOpen, setIsCollapsed, onClose }: Sideba
             </div>
             <div className="flex-1 min-w-0">
               <p className="font-semibold text-sm text-gray-900 truncate">{user.displayName}</p>
-              <p className="text-xs text-gray-600 capitalize">{user.role}</p>
+              <p className="text-xs text-gray-600">{formatRole(user.role)}</p>
             </div>
           </div>
         )}

@@ -251,8 +251,9 @@ export function MyTripsPage() {
               {tabs.map((tab) => (
                 <Button
                   key={tab.key}
-                  variant={activeTab === tab.key ? 'primary' : 'outline'}
                   size="sm"
+                  variant={activeTab === tab.key ? 'primary' : 'outline'}
+                  className={activeTab === tab.key ? 'shadow-sm shadow-blue-100' : 'border-gray-300'}
                   onClick={() => setActiveTab(tab.key)}
                 >
                   {tab.label}

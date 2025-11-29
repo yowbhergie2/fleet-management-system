@@ -256,6 +256,34 @@ export type ContractStatus = 'ACTIVE' | 'EXHAUSTED';
 export type ContractTransactionType = 'INITIAL' | 'DEDUCTION' | 'ADJUSTMENT';
 
 /**
+ * Office interface (for organizational structure)
+ */
+export interface Office {
+  id: string;
+  code: string;
+  name: string;
+  signatoryId: string | null;
+  signatoryName?: string;
+  organizationId: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * Approving Authority interface (for fuel requisition approvals)
+ */
+export interface ApprovingAuthority {
+  id: string;
+  officerId: string;
+  name: string;
+  position: string;
+  prefix: string;
+  organizationId: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
  * Supplier interface
  */
 export interface Supplier {
@@ -293,7 +321,9 @@ export interface Contract {
  */
 export interface FuelPrice {
   id: string;
-  fuelType: 'DIESEL' | 'GASOLINE' | 'PREMIUM';
+  fuelType: 'DIESEL'; // Only DIESEL is supported
+  supplierId?: string;
+  supplierName?: string;
   pricePerLiter: number;
   effectiveDate: Date;
   isCurrent: boolean;
@@ -301,6 +331,12 @@ export interface FuelPrice {
   updatedByName: string;
   organizationId: string;
   createdAt: Date;
+  updatedAt?: Date;
+  isVoided?: boolean;
+  voidReason?: string | null;
+  voidedAt?: Date | null;
+  voidedBy?: string | null;
+  voidedByName?: string | null;
 }
 
 /**
@@ -330,7 +366,7 @@ export interface FuelRequisition {
   dpwhNumber: string;
   vehicleDescription: string;
   plateNumber: string;
-  fuelType: 'DIESEL' | 'GASOLINE' | 'PREMIUM';
+  fuelType: 'DIESEL'; // Only DIESEL is supported
   driverId: string;
   driverName: string;
 
@@ -385,7 +421,8 @@ export interface FuelRequisition {
   // Receipt
   chargeInvoiceNumber: string | null;
   chargeInvoiceDate: Date | null;
-  receiptUrl: string | null;
+  receiptImageBase64: string | null; // Base64 encoded image (stored temporarily)
+  imageArchivedAt: Date | null; // When image was moved to receipt_archives
   refuelDate: Date | null;
   odometerAtRefuel: number | null;
 
@@ -432,6 +469,20 @@ export interface OrganizationSettings {
   issuanceSignatoryId: string;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/**
+ * Receipt archive interface (for storing archived receipt images)
+ */
+export interface ReceiptArchive {
+  id: string;
+  requisitionId: string;
+  risNumber: string;
+  receiptImageBase64: string;
+  archivedAt: Date;
+  archivedBy: string;
+  archivedByName: string;
+  organizationId: string;
 }
 
 /**

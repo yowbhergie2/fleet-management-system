@@ -8,7 +8,8 @@
       "Bash(npm run dev:*)",
       "Bash(node scripts/convert-logos-to-base64.js:*)",
       "Bash(node scripts/generate-logo-constants.js:*)",
-      "Bash(node scripts/generate-font-constants.js:*)"
+      "Bash(node scripts/generate-font-constants.js:*)",
+      "Bash(firebase deploy:*)"
     ],
     "deny": [],
     "ask": []

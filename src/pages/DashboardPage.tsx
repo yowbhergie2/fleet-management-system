@@ -50,28 +50,43 @@ export function DashboardPage() {
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.15),transparent_35%)]" />
           <div className="absolute -bottom-16 -right-16 h-64 w-64 rounded-full bg-white/10 blur-3xl" />
           <div className="relative p-8 lg:p-10 flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
-            <div className="max-w-2xl">
+            <div className="flex flex-col gap-5 w-full max-w-3xl">
               <p className="uppercase text-xs font-semibold tracking-[0.15em] text-blue-100">
                 DPWH Regional Office II
               </p>
-              <h1 className="text-3xl lg:text-4xl font-bold mt-2 leading-tight">
-                Welcome back{user?.displayName ? `, ${user.displayName}` : ''}! Here’s your operations snapshot.
-              </h1>
-              <p className="text-blue-100 mt-3 text-base">
-                Keep trip tickets moving, keep vehicles healthy, and keep teams aligned — all from this single view.
-              </p>
-              <div className="flex flex-wrap gap-3 mt-6">
-                <Button
-                  variant="secondary"
-                  className="bg-white text-blue-700 hover:bg-blue-50"
-                  onClick={() => navigate('/trip-tickets')}
-                >
-                  Create trip ticket
-                </Button>
-                <Button variant="outline" className="border-white/60 text-white hover:bg-white/10" onClick={() => navigate('/vehicles')}>
-                  Manage vehicles
-                </Button>
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between lg:gap-6">
+                <div className="max-w-2xl">
+                  <h1 className="text-3xl lg:text-4xl font-bold leading-tight">
+                    Welcome back{user?.displayName ? `, ${user.displayName}` : ''}! Here’s your operations snapshot.
+                  </h1>
+                  <p className="text-blue-100 mt-3 text-base">
+                    Keep trip tickets moving, keep vehicles healthy, and keep teams aligned — all from this single view.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="bg-white text-blue-700 hover:bg-blue-50"
+                    onClick={() => navigate('/trip-tickets')}
+                  >
+                    <FileText className="h-4 w-4 mr-2" />
+                    Create trip ticket
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="border border-white/70 text-white hover:bg-white/10"
+                    onClick={() => navigate('/vehicles')}
+                  >
+                    <Truck className="h-4 w-4 mr-2" />
+                    Manage vehicles
+                  </Button>
+                </div>
               </div>
+              <p className="text-blue-100 text-sm">
+                Quick overview of trips, approvals, and fleet status tailored to your role.
+              </p>
             </div>
             <div className="bg-white/10 border border-white/20 rounded-2xl p-5 w-full max-w-sm backdrop-blur">
               <div className="flex items-center justify-between text-sm text-blue-50">

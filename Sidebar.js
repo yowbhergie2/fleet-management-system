@@ -1,13 +1,16 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { FaTachometerAlt, FaCar, FaSignOutAlt, FaTicketAlt } from 'react-icons/fa';
+import { FaTachometerAlt, FaCar, FaSignOutAlt, FaTicketAlt, FaGasPump } from 'react-icons/fa';
+import { useUser } from '@/stores/authStore';
 
 const Sidebar = ({ isOpen }) => {
+  const user = useUser();
+
   // Dummy sign out function
   const handleSignOut = () => {
     // Replace with your actual Firebase sign-out logic
     console.log('Signing out...');
-    // auth.signOut(); 
+    // auth.signOut();
   };
 
   return (
@@ -28,6 +31,22 @@ const Sidebar = ({ isOpen }) => {
             {isOpen && <span>Trip Tickets</span>}
           </NavLink>
         </li>
+        {(user?.role === 'driver' || user?.role === 'admin') && (
+          <>
+            <li>
+              <NavLink to="/fuel-requisitions/create">
+                <FaGasPump />
+                {isOpen && <span>Create Request</span>}
+              </NavLink>
+            </li>
+            <li>
+              <NavLink to="/fuel-requisitions/my-requests">
+                <FaGasPump />
+                {isOpen && <span>My Requests</span>}
+              </NavLink>
+            </li>
+          </>
+        )}
         {/* This link goes to the Vehicle Management page */}
         <li>
           <NavLink to="/admin/vehicles">

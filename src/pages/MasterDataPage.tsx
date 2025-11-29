@@ -59,10 +59,12 @@ const prefixOptions = [
 
 export function MasterDataPage() {
   const user = useUser();
-  const [activeTab, setActiveTab] = useState<'signatories' | 'offices' | 'authorities'>('signatories');
+  const [activeTab, setActiveTab] = useState<'signatories' | 'offices' | 'authorities' | 'issuance'>('signatories');
   const [offices, setOffices] = useState<Office[]>([]);
   const [signatories, setSignatories] = useState<Signatory[]>([]);
   const [authorities, setAuthorities] = useState<ApprovingAuthority[]>([]);
+  const [issuanceSignatoryId, setIssuanceSignatoryId] = useState<string>('');
+  const [orgSettingsId, setOrgSettingsId] = useState<string | null>(null);
   const [editingOffice, setEditingOffice] = useState<Office | null>(null);
   const [editingSignatory, setEditingSignatory] = useState<Signatory | null>(null);
   const [editingAuthority, setEditingAuthority] = useState<ApprovingAuthority | null>(null);
@@ -166,10 +168,27 @@ export function MasterDataPage() {
     }
   };
 
+  const loadOrganizationSettings = async () => {
+    if (!user?.organizationId) return;
+    try {
+      const q = query(collection(db, 'organization_settings'), where('organizationId', '==', user.organizationId));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const docData = snap.docs[0];
+        setOrgSettingsId(docData.id);
+        setIssuanceSignatoryId(docData.data().issuanceSignatoryId || '');
+      }
+    } catch (err) {
+      console.error(err);
+      // Silently fail - this is optional configuration
+    }
+  };
+
   useEffect(() => {
     loadOffices();
     loadSignatories();
     loadAuthorities();
+    loadOrganizationSettings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.organizationId]);
 
@@ -318,6 +337,48 @@ export function MasterDataPage() {
     }
   };
 
+  const handleSaveIssuanceSignatory = async () => {
+    if (!user?.organizationId) {
+      setModal({ type: 'error', title: 'Error', description: 'No organization found for this user.' });
+      return;
+    }
+
+    if (!issuanceSignatoryId) {
+      setModal({ type: 'error', title: 'Error', description: 'Please select a signatory.' });
+      return;
+    }
+
+    setIsLoading(true);
+    setModal(null);
+    try {
+      const payload = {
+        organizationId: user.organizationId,
+        issuanceSignatoryId,
+        updatedAt: serverTimestamp(),
+      };
+
+      if (orgSettingsId) {
+        // Update existing
+        await updateDoc(doc(db, 'organization_settings', orgSettingsId), payload);
+      } else {
+        // Create new
+        const docRef = await addDoc(collection(db, 'organization_settings'), {
+          ...payload,
+          createdAt: serverTimestamp(),
+        });
+        setOrgSettingsId(docRef.id);
+      }
+
+      await loadOrganizationSettings();
+      setModal({ type: 'success', title: 'Saved', description: 'Issuance signatory saved successfully.' });
+    } catch (err) {
+      console.error(err);
+      setModal({ type: 'error', title: 'Error', description: 'Failed to save issuance signatory.' });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleDeleteOffice = async (id: string) => {
     setModal({
       type: 'confirm',
@@ -442,6 +503,13 @@ export function MasterDataPage() {
                 onClick={() => setActiveTab('authorities')}
               >
                 Approving Authorities
+              </Button>
+              <Button
+                variant={activeTab === 'issuance' ? 'primary' : 'outline'}
+                size="sm"
+                onClick={() => setActiveTab('issuance')}
+              >
+                Issuance Signatory
               </Button>
             </div>
           </CardHeader>
@@ -996,6 +1064,93 @@ export function MasterDataPage() {
                         <div className="text-center text-sm text-gray-500 py-4">No approving authorities yet.</div>
                       )}
                     </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* Issuance Signatory Tab */}
+            {activeTab === 'issuance' && (
+              <div className="max-w-2xl mx-auto">
+                <Card className="shadow-sm border">
+                  <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b">
+                    <CardTitle className="text-lg font-semibold text-gray-900">
+                      Select Issuance Signatory
+                    </CardTitle>
+                    <p className="text-sm text-gray-600 mt-1">
+                      This signatory will be used for all Requisition and Issue Slip (RIS) documents. Select from your organization&apos;s existing signatories.
+                    </p>
+                  </CardHeader>
+                  <CardContent className="pt-6">
+                    {signatories.length === 0 ? (
+                      <div className="text-center py-8">
+                        <UserCheck className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                        <p className="text-gray-600 mb-2">No signatories available</p>
+                        <p className="text-sm text-gray-500">
+                          Please add signatories in the &quot;Signatories&quot; tab first.
+                        </p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setActiveTab('signatories')}
+                          className="mt-4"
+                        >
+                          Go to Signatories
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="space-y-6">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Select Signatory for RIS Issuance
+                          </label>
+                          <select
+                            value={issuanceSignatoryId}
+                            onChange={(e) => setIssuanceSignatoryId(e.target.value)}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          >
+                            <option value="">-- Select a signatory --</option>
+                            {signatories.map((sig) => (
+                              <option key={sig.id} value={sig.id}>
+                                {sig.name} - {sig.position}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {issuanceSignatoryId && (
+                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                            <h4 className="font-medium text-blue-900 mb-2">Selected Signatory</h4>
+                            {(() => {
+                              const selected = signatories.find((s) => s.id === issuanceSignatoryId);
+                              return selected ? (
+                                <div className="text-sm text-blue-800">
+                                  <p className="font-semibold">{selected.name}</p>
+                                  <p>{selected.position}</p>
+                                </div>
+                              ) : null;
+                            })()}
+                          </div>
+                        )}
+
+                        <div className="flex justify-end pt-4 border-t">
+                          <Button
+                            onClick={handleSaveIssuanceSignatory}
+                            disabled={isLoading || !issuanceSignatoryId}
+                            className="px-6"
+                          >
+                            {isLoading ? (
+                              <>
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                Saving...
+                              </>
+                            ) : (
+                              'Save Issuance Signatory'
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </div>

@@ -9,6 +9,10 @@ import { TripTicketsPage } from '@/pages/TripTicketsPage';
 import { VehiclesPage } from '@/pages/VehiclesPage';
 import { MasterDataPage } from '@/pages/MasterDataPage';
 import { UserManagementPage } from '@/pages/admin/UserManagementPage';
+import { SuppliersPage } from '@/pages/SuppliersPage';
+import { ContractsPage } from '@/pages/ContractsPage';
+import { FuelPricesPage } from '@/pages/FuelPricesPage';
+import { FuelRequisitionsPage } from '@/pages/FuelRequisitionsPage';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { useAuthStore } from '@/stores/authStore';
@@ -165,17 +169,12 @@ function App() {
         }
       />
 
-      {/* Fuel Requisition Module Routes - To be implemented */}
+      {/* Fuel Requisition Module Routes */}
       <Route
         path="/fuel-requisitions"
         element={
           <ProtectedRoute allowedRoles={['admin', 'driver', 'spms', 'emd']}>
-            <DashboardLayout>
-              <div className="p-8">
-                <h1 className="text-2xl font-bold">Fuel Requisitions</h1>
-                <p className="text-gray-600 mt-2">Coming soon...</p>
-              </div>
-            </DashboardLayout>
+            <FuelRequisitionsPage />
           </ProtectedRoute>
         }
       />
@@ -183,12 +182,7 @@ function App() {
         path="/suppliers"
         element={
           <ProtectedRoute allowedRoles={['admin']}>
-            <DashboardLayout>
-              <div className="p-8">
-                <h1 className="text-2xl font-bold">Suppliers</h1>
-                <p className="text-gray-600 mt-2">Coming soon...</p>
-              </div>
-            </DashboardLayout>
+            <SuppliersPage />
           </ProtectedRoute>
         }
       />
@@ -196,12 +190,7 @@ function App() {
         path="/contracts"
         element={
           <ProtectedRoute allowedRoles={['admin', 'spms']}>
-            <DashboardLayout>
-              <div className="p-8">
-                <h1 className="text-2xl font-bold">Contracts</h1>
-                <p className="text-gray-600 mt-2">Coming soon...</p>
-              </div>
-            </DashboardLayout>
+            <ContractsPage />
           </ProtectedRoute>
         }
       />
@@ -209,12 +198,7 @@ function App() {
         path="/fuel-prices"
         element={
           <ProtectedRoute allowedRoles={['admin', 'spms']}>
-            <DashboardLayout>
-              <div className="p-8">
-                <h1 className="text-2xl font-bold">Fuel Prices</h1>
-                <p className="text-gray-600 mt-2">Coming soon...</p>
-              </div>
-            </DashboardLayout>
+            <FuelPricesPage />
           </ProtectedRoute>
         }
       />

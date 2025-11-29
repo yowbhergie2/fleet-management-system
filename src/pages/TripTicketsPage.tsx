@@ -140,17 +140,19 @@ export function TripTicketsPage() {
               )}
               <div className="flex flex-wrap gap-3 mt-6">
                 {tabs.map((tab) => (
-                  <button
+                  <Button
                     key={tab.key}
-                    className={`px-4 py-2 rounded-lg font-medium transition-all ${
-                      activeTab === tab.key
-                        ? 'bg-white text-blue-700 hover:bg-blue-50 shadow-md'
-                        : 'border-2 border-white/60 text-white hover:bg-white/10'
-                    }`}
+                    size="sm"
+                    variant={activeTab === tab.key ? 'secondary' : 'ghost'}
                     onClick={() => setActiveTab(tab.key)}
+                    className={
+                      activeTab === tab.key
+                        ? 'bg-white text-blue-700 hover:bg-blue-50 border-white px-4'
+                        : 'bg-transparent border border-white/70 text-white hover:bg-white/10 px-4'
+                    }
                   >
                     {tab.label}
-                  </button>
+                  </Button>
                 ))}
               </div>
             </div>

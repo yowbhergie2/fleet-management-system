@@ -39,6 +39,7 @@ export const collections = {
   fuelPrices: collection(db, 'fuel_prices'),
   fuelRequisitions: collection(db, 'fuel_requisitions'),
   contractTransactions: collection(db, 'contract_transactions'),
+  receiptArchives: collection(db, 'receipt_archives'),
 };
 
 // Helper: Convert Firestore Timestamp to Date

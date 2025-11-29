@@ -1,4 +1,4 @@
-import { useState, useEffect, type ChangeEvent } from 'react';
+import { useState, useEffect, useRef, type ChangeEvent } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -29,12 +29,12 @@ const vehicleSchema = z.object({
   model: z.string().min(1, 'Model is required'),
   plateNumber: z.string().min(1, 'Plate Number is required'),
   year: z.string().optional(),
-  fuelType: z.enum(['Gasoline', 'Diesel', 'Electric', 'Hybrid']).optional(),
+  fuelType: z.literal('Diesel').optional(), // Only Diesel is supported
   status: z.enum(['Active', 'Under Maintenance', 'Retired']).optional(),
 });
 
 type VehicleFormData = z.infer<typeof vehicleSchema>;
-type Vehicle = VehicleFormData & {
+type Vehicle = Omit<VehicleFormData, 'year' | 'fuelType' | 'status'> & {
   id: string;
   year?: number;
   fuelType?: VehicleFuel;
@@ -44,6 +44,7 @@ type Vehicle = VehicleFormData & {
 
 export function VehiclesPage() {
   const user = useUser();
+  const csvInputRef = useRef<HTMLInputElement | null>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -88,7 +89,7 @@ export function VehiclesPage() {
         where('organizationId', '==', user.organizationId)
       );
       const snap = await getDocs(q);
-      const loaded = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Vehicle) }));
+      const loaded = snap.docs.map((d) => ({ ...(d.data() as Vehicle), id: d.id }));
       setVehicles(loaded.length ? loaded : []);
     } catch (err) {
       console.error(err);
@@ -181,7 +182,7 @@ export function VehiclesPage() {
       model: vehicle.model,
       plateNumber: vehicle.plateNumber,
       year: vehicle.year?.toString(),
-      fuelType: vehicle.fuelType,
+      fuelType: 'Diesel', // Always Diesel
       status: vehicle.status,
     });
     setIsFormOpen(true);
@@ -330,7 +331,7 @@ export function VehiclesPage() {
         const reloaded = await getDocs(
           query(collection(db, 'vehicles'), where('organizationId', '==', user.organizationId))
         );
-        const merged = reloaded.docs.map((d) => ({ id: d.id, ...(d.data() as Vehicle) }));
+        const merged = reloaded.docs.map((d) => ({ ...(d.data() as Vehicle), id: d.id }));
         setVehicles(merged);
 
         showSuccess(`Imported ${imported.length} vehicle${imported.length > 1 ? 's' : ''} from CSV`);
@@ -430,14 +431,22 @@ export function VehiclesPage() {
                   <Plus className="h-5 w-5 mr-2" />
                   {isFormOpen ? 'Close form' : 'Add Vehicle'}
                 </Button>
-                <label
-                  htmlFor="csv-upload"
-                  className="inline-flex items-center gap-2 cursor-pointer rounded-md bg-white/15 px-4 py-2 text-white border border-white/30 hover:bg-white/20 transition-colors"
+                <Button
+                  onClick={() => csvInputRef.current?.click()}
+                  className="bg-white/15 text-white border border-white/30 hover:bg-white/20"
+                  disabled={isLoading}
                 >
-                  <FileSpreadsheet className="h-5 w-5" />
+                  <FileSpreadsheet className="h-5 w-5 mr-2" />
                   Import CSV
-                </label>
-                <input id="csv-upload" type="file" accept=".csv" className="hidden" onChange={handleFileInput} />
+                </Button>
+                <input
+                  ref={csvInputRef}
+                  id="csv-upload"
+                  type="file"
+                  accept=".csv"
+                  className="hidden"
+                  onChange={handleFileInput}
+                />
               </div>
             </div>
             <div className="bg-white/10 border border-white/20 rounded-2xl p-5 backdrop-blur w-full max-w-sm">
@@ -550,15 +559,13 @@ export function VehiclesPage() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Fuel Type
                     </label>
-                    <select
-                      {...register('fuelType')}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                    >
-                      <option value="Diesel">Diesel</option>
-                      <option value="Gasoline">Gasoline</option>
-                      <option value="Electric">Electric</option>
-                      <option value="Hybrid">Hybrid</option>
-                    </select>
+                    <input
+                      type="text"
+                      value="Diesel"
+                      disabled
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-gray-50 text-gray-700 cursor-not-allowed"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">All vehicles use Diesel fuel</p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">

@@ -255,9 +255,25 @@ export function UserManagementPage({ onCreateUser }: UserManagementPageProps) {
   return (
     <div className="space-y-8">
       {/* Page Header */}
-      <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl shadow-lg p-8 text-white">
-        <h1 className="text-3xl font-bold mb-2">User Management</h1>
-        <p className="text-blue-100">Create and manage system users with role-based access</p>
+      <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl shadow-lg p-8 text-white flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="space-y-3">
+          <div className="inline-flex items-center gap-2 bg-white/15 px-3 py-1 rounded-full text-xs uppercase tracking-wide">
+            <Shield className="h-4 w-4" />
+            Admin Console
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-white/15 border border-white/20 flex items-center justify-center">
+              <Users className="h-6 w-6 text-white" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold leading-tight">User Management</h1>
+              <p className="text-blue-100">Create and manage system users with role-based access.</p>
+            </div>
+          </div>
+        </div>
+        <Badge variant="info" className="bg-white/20 text-white border border-white/30 px-3 py-1 text-xs">
+          Roles: Admin, SPMS, Driver, EMD
+        </Badge>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">

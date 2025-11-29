@@ -120,12 +120,18 @@ service cloud.firestore {
       allow read: if isActiveUser();
       allow write: if isAdminOrSPMS();
     }
-    
+
     // Standalone DTT control number reservations
     match /serial_reservations/{reservationId} {
       allow read: if isAdminOrSPMS();
       allow write: if isAdminOrSPMS();
       allow delete: if isAdminOrSPMS();
+    }
+
+    // Counters for auto-increment (fuel requisition ref numbers, etc.)
+    match /counters/{counterId} {
+      allow read: if isActiveUser();
+      allow write: if isActiveUser();
     }
 
     // Master data: signatories
@@ -154,6 +160,77 @@ service cloud.firestore {
     match /audit_logs/{logId} {
       allow read: if isActiveUser() && isAdminOrSPMS();
       allow create: if isActiveUser();
+    }
+
+    // ========================================================================
+    // FUEL REQUISITION MODULE COLLECTIONS
+    // ========================================================================
+
+    // Organization settings (for issuance signatory)
+    match /organization_settings/{settingsId} {
+      allow read: if isActiveUser();
+      allow write: if hasRole('admin');
+    }
+
+    // Suppliers
+    match /suppliers/{supplierId} {
+      allow read: if isActiveUser();
+      allow write: if hasRole('admin');
+    }
+
+    // Contracts
+    match /contracts/{contractId} {
+      allow read: if isActiveUser();
+      allow write: if hasRole('admin') || hasRole('spms');
+    }
+
+    // Contract transactions
+    match /contract_transactions/{transactionId} {
+      allow read: if isActiveUser();
+      allow write: if hasRole('admin') || hasRole('emd');
+    }
+
+    // Fuel prices
+    match /fuel_prices/{priceId} {
+      allow read: if isActiveUser();
+      allow write: if hasRole('admin') || hasRole('spms');
+    }
+
+    // Fuel requisitions
+    match /fuel_requisitions/{requisitionId} {
+      // All authenticated users can read
+      allow read: if isActiveUser();
+
+      // Drivers and admins can create
+      allow create: if isActiveUser() &&
+        (hasRole('driver') || hasRole('admin')) &&
+        request.resource.data.createdBy == request.auth.uid;
+
+      // Drivers can update their own drafts or pending requisitions
+      allow update: if isActiveUser() &&
+        hasRole('driver') &&
+        resource.data.createdBy == request.auth.uid &&
+        (resource.data.status == 'DRAFT' ||
+         resource.data.status == 'PENDING_EMD' ||
+         resource.data.status == 'RIS_ISSUED' ||
+         resource.data.status == 'AWAITING_RECEIPT' ||
+         resource.data.status == 'RETURNED');
+
+      // EMD can validate and verify
+      allow update: if isActiveUser() &&
+        (hasRole('emd') || hasRole('admin')) &&
+        (resource.data.status == 'PENDING_EMD' ||
+         resource.data.status == 'RETURNED' ||
+         resource.data.status == 'RECEIPT_SUBMITTED');
+
+      // SPMS can issue RIS
+      allow update: if isActiveUser() &&
+        (hasRole('spms') || hasRole('admin')) &&
+        (resource.data.status == 'EMD_VALIDATED' ||
+         resource.data.status == 'PENDING_ISSUANCE');
+
+      // Admin can delete
+      allow delete: if hasRole('admin');
     }
   }
 }

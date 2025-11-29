@@ -25,6 +25,15 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
   // If allowedRoles is specified, check if user has permission
   if (allowedRoles && allowedRoles.length > 0) {
     if (!allowedRoles.includes(user.role)) {
+      const formatRole = (role: string) => {
+        const map: Record<string, string> = {
+          spms: 'SPMS',
+          emd: 'EMD',
+          admin: 'Admin',
+          driver: 'Driver',
+        };
+        return map[role] || role.toUpperCase();
+      };
       return (
         <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
           <div className="max-w-md w-full bg-white rounded-lg shadow-sm border border-gray-200 p-6 text-center">
@@ -52,7 +61,7 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
               <span className="font-medium">{allowedRoles.join(' or ')}</span>
             </p>
             <p className="text-sm text-gray-500 mt-1">
-              Your role: <span className="font-medium">{user.role}</span>
+              Your role: <span className="font-medium">{formatRole(user.role)}</span>
             </p>
           </div>
         </div>
