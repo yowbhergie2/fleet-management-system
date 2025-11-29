@@ -1,0 +1,159 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Allow public read/write to config during setup ONLY
+    match /config/system {
+      // Anyone can read to check if setup is needed
+      allow read: if true;
+
+      // Anyone can write if setup is not completed yet
+      allow create: if !exists(/databases/$(database)/documents/config/system);
+
+      // Only authenticated users can update after setup
+      allow update: if request.auth != null;
+    }
+
+    // Allow organization creation during setup
+    match /organizations/{orgId} {
+      // Public read during setup
+      allow read: if true;
+
+      // Allow creation during setup (when no config exists yet)
+      allow create: if !exists(/databases/$(database)/documents/config/system) ||
+                       !get(/databases/$(database)/documents/config/system).data.setupCompleted;
+
+      // Only authenticated admins can update after setup
+      allow update: if request.auth != null &&
+                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // Allow user creation during setup
+    match /users/{userId} {
+      // Public read during setup check
+      allow read: if request.auth != null;
+
+      // Allow creation during setup or by admin
+      allow create: if (!exists(/databases/$(database)/documents/config/system) ||
+                        !get(/databases/$(database)/documents/config/system).data.setupCompleted) ||
+                       (request.auth != null &&
+                        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin');
+
+      // Only admins can update
+      allow update: if request.auth != null &&
+                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper function to get user data
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Helper function to check if user is active
+    function isActiveUser() {
+      return isAuthenticated() && getUserData().isActive == true;
+    }
+
+    // Helper function to check user role
+    function hasRole(role) {
+      return isActiveUser() && getUserData().role == role;
+    }
+
+    // Helper function to check if user is admin or SPMS
+    function isAdminOrSPMS() {
+      return hasRole('admin') || hasRole('spms');
+    }
+
+    // Vehicles collection
+    match /vehicles/{vehicleId} {
+      allow read: if isActiveUser();
+      allow write: if hasRole('admin');
+    }
+
+    // Trip tickets collection
+    match /trip_tickets/{ticketId} {
+      // Anyone can read their own tickets, SPMS/Admin can read all in their org
+      allow read: if isActiveUser() &&
+        (resource.data.driverId == request.auth.uid || isAdminOrSPMS());
+
+      // Drivers (and admin/SPMS) can create pending submissions
+      allow create: if isActiveUser() &&
+        (hasRole('driver') || isAdminOrSPMS()) &&
+        request.resource.data.driverId == request.auth.uid &&
+        request.resource.data.status == 'pending_approval';
+
+      // Drivers can edit or progress their own pending/approved/in_progress tickets
+      allow update: if isActiveUser() &&
+        resource.data.driverId == request.auth.uid &&
+        (resource.data.status == 'pending_approval' || resource.data.status == 'approved' || resource.data.status == 'in_progress');
+
+      // SPMS/Admin can approve/reject (while pending)
+      allow update: if isAdminOrSPMS() &&
+        resource.data.status == 'pending_approval';
+
+      // Only admin can delete
+      allow delete: if hasRole('admin');
+    }
+
+    // Trip ticket action requests
+    match /trip_ticket_action_requests/{requestId} {
+      allow read: if isActiveUser();
+      allow create: if isActiveUser() && hasRole('driver');
+      allow update: if isAdminOrSPMS();
+    }
+
+    // Other collections (for future modules)
+    match /fuel_requests/{requestId} {
+      allow read, write: if isActiveUser();
+    }
+
+    match /fuel_contracts/{contractId} {
+      allow read, write: if isActiveUser();
+    }
+
+    match /serial_numbers/{numberId} {
+      allow read: if isActiveUser();
+      allow write: if isAdminOrSPMS();
+    }
+    
+    // Standalone DTT control number reservations
+    match /serial_reservations/{reservationId} {
+      allow read: if isAdminOrSPMS();
+      allow write: if isAdminOrSPMS();
+      allow delete: if isAdminOrSPMS();
+    }
+
+    // Master data: signatories
+    match /signatories/{signatoryId} {
+      allow read: if isActiveUser();
+      allow write: if hasRole('admin');
+    }
+
+    // Master data: offices
+    match /offices/{officeId} {
+      allow read: if isActiveUser();
+      allow write: if hasRole('admin');
+    }
+
+    // Master data: approving authorities
+    match /approving_authorities/{authorityId} {
+      allow read: if isActiveUser();
+      allow write: if hasRole('admin');
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isActiveUser() && (resource.data.userId == request.auth.uid || resource.data.role == getUserData().role);
+      allow write: if isActiveUser();
+    }
+
+    match /audit_logs/{logId} {
+      allow read: if isActiveUser() && isAdminOrSPMS();
+      allow create: if isActiveUser();
+    }
+  }
+}
