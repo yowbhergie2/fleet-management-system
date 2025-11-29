@@ -50,6 +50,10 @@ export function VehiclesPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [brandSuggestions, setBrandSuggestions] = useState<string[]>([]);
+  const [modelSuggestions, setModelSuggestions] = useState<string[]>([]);
+  const [showBrandDropdown, setShowBrandDropdown] = useState(false);
+  const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [modal, setModal] = useState<{
     type: 'success' | 'error' | 'confirm';
     title: string;
@@ -65,6 +69,7 @@ export function VehiclesPage() {
     register,
     handleSubmit,
     reset,
+    watch,
     formState: { errors },
   } = useForm<VehicleFormData>({
     resolver: zodResolver(vehicleSchema),
@@ -74,11 +79,48 @@ export function VehiclesPage() {
     },
   });
 
+  const brandValue = watch('brand');
+  const modelValue = watch('model');
+
   const stats = [
     { label: 'Total fleet', value: vehicles.length, accent: 'bg-blue-50 text-blue-700' },
     { label: 'Active', value: vehicles.filter((v) => v.status === 'Active').length, accent: 'bg-emerald-50 text-emerald-700' },
     { label: 'Under maintenance', value: vehicles.filter((v) => v.status === 'Under Maintenance').length, accent: 'bg-amber-50 text-amber-700' },
   ];
+
+  const STORAGE_KEYS = {
+    brand: 'vehicle_brand_suggestions',
+    model: 'vehicle_model_suggestions',
+  };
+
+  const loadLocalSuggestions = (key: string): string[] => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const persistSuggestions = (key: string, values: string[]) => {
+    try {
+      localStorage.setItem(key, JSON.stringify(values.slice(0, 15)));
+    } catch {
+      // ignore storage errors
+    }
+  };
+
+  const addSuggestion = (key: 'brand' | 'model', value: string) => {
+    const clean = value.trim();
+    if (clean.length < 2) return;
+    const current = key === 'brand' ? brandSuggestions : modelSuggestions;
+    const next = [clean, ...current.filter((v) => v !== clean)].slice(0, 15);
+    if (key === 'brand') setBrandSuggestions(next);
+    if (key === 'model') setModelSuggestions(next);
+    persistSuggestions(STORAGE_KEYS[key], next);
+  };
 
   const loadVehicles = async () => {
     if (!user?.organizationId) return;
@@ -105,6 +147,13 @@ export function VehiclesPage() {
     loadVehicles();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.organizationId]);
+
+  // Load autocomplete suggestions from localStorage
+  useEffect(() => {
+    setBrandSuggestions(loadLocalSuggestions(STORAGE_KEYS.brand));
+    setModelSuggestions(loadLocalSuggestions(STORAGE_KEYS.model));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const onSubmit = async (data: VehicleFormData) => {
     if (!user?.organizationId) {
@@ -154,6 +203,11 @@ export function VehiclesPage() {
         await loadVehicles();
         showSuccess('Vehicle added successfully!');
       }
+
+      // Save brand and model to autocomplete suggestions
+      if (data.brand) addSuggestion('brand', data.brand);
+      if (data.model) addSuggestion('model', data.model);
+
       // Clear all fields
       reset({
         dpwhNumber: '',
@@ -166,6 +220,8 @@ export function VehiclesPage() {
       });
       setIsFormOpen(false);
       setEditingVehicle(null);
+      setShowBrandDropdown(false);
+      setShowModelDropdown(false);
     } catch (err) {
       console.error(err);
       showError('Failed to save vehicle.');
@@ -531,20 +587,81 @@ export function VehiclesPage() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Input
+                  {/* Brand with autocomplete */}
+                  <div className="relative">
+                    <Input
                     label="Brand"
-                    placeholder="e.g., Toyota"
+                    placeholder="e.g., Toyota, Isuzu, Nissan"
                     error={errors.brand?.message}
                     required
+                    autoComplete="on"
                     {...register('brand')}
+                    onFocus={() => setShowBrandDropdown(true)}
+                    onBlur={() => setTimeout(() => setShowBrandDropdown(false), 200)}
                   />
-                  <Input
+                    {showBrandDropdown && brandSuggestions.length > 0 && (
+                      <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-48 overflow-y-auto">
+                        <div className="px-3 py-2 text-xs font-semibold text-gray-500 border-b bg-gray-50">
+                          Recent Brands
+                        </div>
+                        {brandSuggestions
+                          .filter((s) => !brandValue || s.toLowerCase().includes(brandValue.toLowerCase()))
+                          .slice(0, 8)
+                          .map((suggestion, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              className="w-full px-3 py-2 text-left text-sm hover:bg-blue-50 focus:bg-blue-50 focus:outline-none"
+                              onClick={() => {
+                                const event = { target: { name: 'brand', value: suggestion } } as any;
+                                register('brand').onChange(event);
+                                setShowBrandDropdown(false);
+                              }}
+                            >
+                              {suggestion}
+                            </button>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Model with autocomplete */}
+                  <div className="relative">
+                    <Input
                     label="Model"
-                    placeholder="e.g., Hilux 2024"
+                    placeholder="e.g., Hilux, Navara, Elf"
                     error={errors.model?.message}
                     required
+                    autoComplete="on"
                     {...register('model')}
+                    onFocus={() => setShowModelDropdown(true)}
+                    onBlur={() => setTimeout(() => setShowModelDropdown(false), 200)}
                   />
+                    {showModelDropdown && modelSuggestions.length > 0 && (
+                      <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-48 overflow-y-auto">
+                        <div className="px-3 py-2 text-xs font-semibold text-gray-500 border-b bg-gray-50">
+                          Recent Models
+                        </div>
+                        {modelSuggestions
+                          .filter((s) => !modelValue || s.toLowerCase().includes(modelValue.toLowerCase()))
+                          .slice(0, 8)
+                          .map((suggestion, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              className="w-full px-3 py-2 text-left text-sm hover:bg-blue-50 focus:bg-blue-50 focus:outline-none"
+                              onClick={() => {
+                                const event = { target: { name: 'model', value: suggestion } } as any;
+                                register('model').onChange(event);
+                                setShowModelDropdown(false);
+                              }}
+                            >
+                              {suggestion}
+                            </button>
+                          ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

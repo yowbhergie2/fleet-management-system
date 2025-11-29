@@ -47,6 +47,10 @@ export function ContractsPage() {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [adjustmentAmount, setAdjustmentAmount] = useState<string>('');
   const [adjustmentRemarks, setAdjustmentRemarks] = useState<string>('');
+  const [contractNumberSuggestions, setContractNumberSuggestions] = useState<string[]>([]);
+  const [amountSuggestions, setAmountSuggestions] = useState<string[]>([]);
+  const [showContractDropdown, setShowContractDropdown] = useState(false);
+  const [showAmountDropdown, setShowAmountDropdown] = useState(false);
   const [modal, setModal] = useState<{
     type: 'success' | 'error' | 'confirm';
     title: string;
@@ -103,6 +107,7 @@ export function ContractsPage() {
 
   const parseAmountNumber = (value: string) => parseFloat(value.replace(/,/g, ''));
 
+  const watchContractNumber = watch('contractNumber') || '';
   const watchTotalAmount = watch('totalAmount') || '';
 
   const stats = [
@@ -110,6 +115,43 @@ export function ContractsPage() {
     { label: 'Active', value: contracts.filter((c) => c.status === 'ACTIVE').length, accent: 'bg-emerald-50 text-emerald-700' },
     { label: 'Exhausted', value: contracts.filter((c) => c.status === 'EXHAUSTED').length, accent: 'bg-red-50 text-red-700' },
   ];
+
+  const STORAGE_KEYS = {
+    contractNumber: 'contract_number_suggestions',
+    totalAmount: 'contract_amount_suggestions',
+  };
+
+  const loadLocalSuggestions = (key: string): string[] => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const persistSuggestions = (key: keyof typeof STORAGE_KEYS, values: string[]) => {
+    try {
+      localStorage.setItem(STORAGE_KEYS[key], JSON.stringify(values.slice(0, 12)));
+    } catch {
+      // ignore storage errors
+    }
+  };
+
+  const addSuggestion = (key: keyof typeof STORAGE_KEYS, value: string) => {
+    const clean = value.trim();
+    if (!clean) return;
+    const current = key === 'contractNumber' ? contractNumberSuggestions : amountSuggestions;
+    const next = [clean, ...current.filter((v) => v !== clean)].slice(0, 12);
+    if (key === 'contractNumber') {
+      setContractNumberSuggestions(next);
+    } else {
+      setAmountSuggestions(next);
+    }
+    persistSuggestions(key, next);
+  };
 
   const loadSuppliers = async () => {
     if (!user?.organizationId) return;
@@ -179,6 +221,11 @@ export function ContractsPage() {
       showError('Unable to load transaction history.');
     }
   };
+
+  useEffect(() => {
+    setContractNumberSuggestions(loadLocalSuggestions(STORAGE_KEYS.contractNumber));
+    setAmountSuggestions(loadLocalSuggestions(STORAGE_KEYS.totalAmount));
+  }, []);
 
   useEffect(() => {
     loadSuppliers();
@@ -265,6 +312,9 @@ export function ContractsPage() {
         await loadContracts();
         showSuccess('Contract added successfully!');
       }
+
+      addSuggestion('contractNumber', data.contractNumber);
+      addSuggestion('totalAmount', formatAmount(data.totalAmount));
 
       reset({
         contractNumber: '',
@@ -687,19 +737,48 @@ export function ContractsPage() {
             <CardContent className="pt-6">
               <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Input
-                    label="Contract Number"
-                    placeholder="e.g., 25GB002"
-                    error={errors.contractNumber?.message}
-                    required
-                    toUppercase
-                    {...register('contractNumber', {
-                      onBlur: (e) => {
-                        const formatted = formatContractNumber(e.target.value);
-                        setValue('contractNumber', formatted, { shouldDirty: true, shouldTouch: true });
-                      },
-                    })}
-                  />
+                  <div className="relative">
+                    <Input
+                      label="Contract Number"
+                      placeholder="e.g., 25GB002"
+                      error={errors.contractNumber?.message}
+                      required
+                      toUppercase
+                      autoComplete="on"
+                      {...register('contractNumber', {
+                        onBlur: (e) => {
+                          const formatted = formatContractNumber(e.target.value);
+                          setValue('contractNumber', formatted, { shouldDirty: true, shouldTouch: true });
+                          setTimeout(() => setShowContractDropdown(false), 120);
+                        },
+                      })}
+                      onFocus={() => setShowContractDropdown(true)}
+                    />
+                    {showContractDropdown && contractNumberSuggestions.length > 0 && (
+                      <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-48 overflow-y-auto">
+                        <div className="px-3 py-2 text-xs font-semibold text-gray-500 border-b bg-gray-50">
+                          Recent Contract Numbers
+                        </div>
+                        {contractNumberSuggestions
+                          .filter((s) => !watchContractNumber || s.toLowerCase().includes(watchContractNumber.toLowerCase()))
+                          .slice(0, 8)
+                          .map((suggestion, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              className="w-full px-3 py-2 text-left text-sm hover:bg-blue-50 focus:bg-blue-50 focus:outline-none"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                setValue('contractNumber', suggestion, { shouldDirty: true, shouldTouch: true, shouldValidate: true });
+                                setShowContractDropdown(false);
+                              }}
+                            >
+                              {suggestion}
+                            </button>
+                          ))}
+                      </div>
+                    )}
+                  </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Supplier <span className="text-red-500">*</span>
@@ -722,21 +801,50 @@ export function ContractsPage() {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Input
-                    type="text"
-                    inputMode="decimal"
-                    label="Total Amount (PHP)"
-                    placeholder="e.g., 500000.00"
-                    error={errors.totalAmount?.message}
-                    required
-                    value={watchTotalAmount}
-                    {...register('totalAmount', {
-                      onChange: (e) => {
-                        const formatted = formatAmount(e.target.value);
-                        setValue('totalAmount', formatted, { shouldDirty: true, shouldTouch: true });
-                      },
-                    })}
-                  />
+                  <div className="relative">
+                    <Input
+                      type="text"
+                      inputMode="decimal"
+                      label="Total Amount (PHP)"
+                      placeholder="e.g., 500000.00"
+                      error={errors.totalAmount?.message}
+                      required
+                      autoComplete="on"
+                      value={watchTotalAmount}
+                      {...register('totalAmount', {
+                        onChange: (e) => {
+                          const formatted = formatAmount(e.target.value);
+                          setValue('totalAmount', formatted, { shouldDirty: true, shouldTouch: true });
+                        },
+                        onBlur: () => setTimeout(() => setShowAmountDropdown(false), 120),
+                      })}
+                      onFocus={() => setShowAmountDropdown(true)}
+                    />
+                    {showAmountDropdown && amountSuggestions.length > 0 && (
+                      <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-48 overflow-y-auto">
+                        <div className="px-3 py-2 text-xs font-semibold text-gray-500 border-b bg-gray-50">
+                          Recent Amounts
+                        </div>
+                        {amountSuggestions
+                          .filter((s) => !watchTotalAmount || s.toLowerCase().includes(watchTotalAmount.toLowerCase()))
+                          .slice(0, 8)
+                          .map((suggestion, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              className="w-full px-3 py-2 text-left text-sm hover:bg-blue-50 focus:bg-blue-50 focus:outline-none"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                setValue('totalAmount', suggestion, { shouldDirty: true, shouldTouch: true, shouldValidate: true });
+                                setShowAmountDropdown(false);
+                              }}
+                            >
+                              {suggestion}
+                            </button>
+                          ))}
+                      </div>
+                    )}
+                  </div>
                   <Input
                     type="date"
                     label="Start Date (optional)"

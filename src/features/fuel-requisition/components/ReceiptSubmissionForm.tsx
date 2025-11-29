@@ -1,15 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import imageCompression from 'browser-image-compression';
 import { Upload, FileImage, CheckCircle2, AlertCircle } from 'lucide-react';
 import { Button, Input, Card, CardHeader, CardTitle, CardContent, Badge } from '@/components/ui';
-import type { FuelRequisition } from '@/types';
+import type { FuelRequisition, ReceiptSubmissionPayload } from '@/types';
 
 const receiptSchema = z.object({
   chargeInvoiceNumber: z.string().min(1, 'Charge Invoice Number is required'),
   chargeInvoiceDate: z.string().min(1, 'Invoice date is required'),
+  refuelDate: z.string().optional(),
   actualLiters: z
     .string()
     .min(1, 'Actual liters is required')
@@ -26,36 +27,60 @@ const receiptSchema = z.object({
 type ReceiptForm = z.infer<typeof receiptSchema>;
 
 interface ReceiptSubmissionFormProps {
+  mode?: 'submit' | 'edit';
   requisition: FuelRequisition | null;
   isSubmitting?: boolean;
-  onSubmit: (payload: {
-    chargeInvoiceNumber: string;
-    chargeInvoiceDate: string;
-    actualLiters: number;
-    odometerAtRefuel?: number;
-    receiptImageBase64: string; // Changed from receiptUrl to base64
-  }) => void;
+  onSubmit: (payload: ReceiptSubmissionPayload) => void;
+  onCancel?: () => void;
 }
 
-export function ReceiptSubmissionForm({ requisition, isSubmitting, onSubmit }: ReceiptSubmissionFormProps) {
+export function ReceiptSubmissionForm({ requisition, isSubmitting, onSubmit, onCancel, mode = 'submit' }: ReceiptSubmissionFormProps) {
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [receiptPreview, setReceiptPreview] = useState<string | null>(null);
+  const [existingReceipt, setExistingReceipt] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const isReupload = useMemo(
+    () =>
+      requisition
+        ? requisition.status === 'RECEIPT_SUBMITTED' || requisition.status === 'RECEIPT_RETURNED'
+        : false,
+    [requisition]
+  );
+  const loadedUpdatedAt = requisition?.updatedAt || null;
+  const actionLabel = mode === 'edit' || isReupload ? 'Edit Receipt' : 'Submit Receipt';
 
   const {
     register,
     handleSubmit,
+    reset,
     formState: { errors },
   } = useForm<ReceiptForm>({
     resolver: zodResolver(receiptSchema),
     defaultValues: {
       chargeInvoiceNumber: '',
       chargeInvoiceDate: '',
+      refuelDate: '',
       actualLiters: requisition?.validatedLiters?.toString() || '',
       odometerAtRefuel: '',
     },
   });
+
+  useEffect(() => {
+    if (!requisition) return;
+    reset({
+      chargeInvoiceNumber: requisition.chargeInvoiceNumber || '',
+      chargeInvoiceDate: requisition.chargeInvoiceDate
+        ? new Date(requisition.chargeInvoiceDate).toISOString().split('T')[0]
+        : '',
+      refuelDate: requisition.refuelDate ? new Date(requisition.refuelDate).toISOString().split('T')[0] : '',
+      actualLiters: requisition.actualLiters?.toString() || requisition.validatedLiters?.toString() || '',
+      odometerAtRefuel: requisition.odometerAtRefuel?.toString() || '',
+    });
+    setReceiptPreview(requisition.receiptImageBase64 || null);
+    setExistingReceipt(requisition.receiptImageBase64 || null);
+    setUploadError(null);
+  }, [requisition, reset]);
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -134,30 +159,36 @@ export function ReceiptSubmissionForm({ requisition, isSubmitting, onSubmit }: R
   };
 
   const submit = async (data: ReceiptForm) => {
-    if (!receiptFile) {
-      setUploadError('Please upload a receipt image.');
-      return;
-    }
-
-    if (!requisition) {
-      setUploadError('No requisition selected.');
-      return;
-    }
-
     setIsUploading(true);
     setUploadError(null);
 
     try {
-      // Convert compressed image to Base64
-      const receiptBase64 = await convertFileToBase64(receiptFile);
+      if (!requisition) {
+        setUploadError('No requisition selected.');
+        return;
+      }
+
+      let receiptBase64 = receiptPreview;
+
+      if (receiptFile) {
+        // Convert compressed image to Base64
+        receiptBase64 = await convertFileToBase64(receiptFile);
+      }
+
+      if (!receiptBase64) {
+        setUploadError('Please upload a receipt image.');
+        return;
+      }
 
       // Submit form with Base64 image
       onSubmit({
         chargeInvoiceNumber: data.chargeInvoiceNumber,
         chargeInvoiceDate: data.chargeInvoiceDate,
+        refuelDate: data.refuelDate,
         actualLiters: parseFloat(data.actualLiters),
         odometerAtRefuel: data.odometerAtRefuel ? parseFloat(data.odometerAtRefuel) : undefined,
-        receiptImageBase64: receiptBase64,
+        receiptImageBase64,
+        loadedUpdatedAt,
       });
     } catch (err) {
       console.error('Failed to process receipt:', err);
@@ -172,10 +203,15 @@ export function ReceiptSubmissionForm({ requisition, isSubmitting, onSubmit }: R
       <CardHeader className="bg-gradient-to-r from-sky-50 to-indigo-50 border-b">
         <CardTitle className="flex items-center gap-2 text-lg">
           <Badge variant="primary">Driver</Badge>
-          Submit Receipt
+          {actionLabel}
         </CardTitle>
       </CardHeader>
       <CardContent className="pt-6 space-y-4">
+        {isReupload && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            Receipt was already submitted. You can correct the invoice details or upload a clearer image before EMD verification.
+          </div>
+        )}
         {/* RIS Summary */}
         {requisition && (
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm space-y-1">
@@ -223,6 +259,11 @@ export function ReceiptSubmissionForm({ requisition, isSubmitting, onSubmit }: R
               )}
             </div>
             <p className="text-xs text-gray-500 mt-1">Accepted: JPG, PNG, WEBP (Auto-compressed to max 750KB, 1200px)</p>
+            {!receiptFile && existingReceipt && (
+              <p className="text-xs text-gray-600 mt-1">
+                Using existing receipt image. Upload a new file to replace it.
+              </p>
+            )}
             {uploadError && (
               <div className="mt-2 flex items-center gap-2 text-xs text-red-600">
                 <AlertCircle className="h-4 w-4" />
@@ -239,7 +280,7 @@ export function ReceiptSubmissionForm({ requisition, isSubmitting, onSubmit }: R
           </div>
 
           {/* Invoice Details */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Input
               label="Charge Invoice Number"
               placeholder="e.g., INV-2025-001"
@@ -253,6 +294,12 @@ export function ReceiptSubmissionForm({ requisition, isSubmitting, onSubmit }: R
               error={errors.chargeInvoiceDate?.message}
               required
               {...register('chargeInvoiceDate')}
+            />
+            <Input
+              label="Refuel Date (optional)"
+              type="date"
+              error={errors.refuelDate?.message}
+              {...register('refuelDate')}
             />
           </div>
 
@@ -286,10 +333,24 @@ export function ReceiptSubmissionForm({ requisition, isSubmitting, onSubmit }: R
           </div>
 
           {/* Submit Button */}
-          <div className="flex justify-end">
-            <Button type="submit" isLoading={isSubmitting || isUploading} disabled={!receiptFile}>
+          <div className="flex justify-end gap-2">
+            {onCancel && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onCancel}
+                disabled={isSubmitting || isUploading}
+              >
+                Cancel
+              </Button>
+            )}
+            <Button
+              type="submit"
+              isLoading={isSubmitting || isUploading}
+              disabled={!receiptFile && !receiptPreview}
+            >
               <CheckCircle2 className="h-4 w-4 mr-2" />
-              {isUploading ? 'Processing...' : 'Submit Receipt'}
+              {isUploading ? 'Processing...' : actionLabel}
             </Button>
           </div>
         </form>

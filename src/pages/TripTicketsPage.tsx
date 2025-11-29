@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { ClipboardCheck, Clock3, FileText, MapPin, User } from 'lucide-react';
 import { TripTicketForm } from '@/features/trip-tickets/components/TripTicketForm';
 import { TripTicketList } from '@/features/trip-tickets/components/TripTicketList';
@@ -10,23 +10,65 @@ import { useUser } from '@/stores/authStore';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Modal, Button } from '@/components/ui';
 import type { TripTicketFormData } from '@/types';
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { addDoc, collection, serverTimestamp, query, where, getDocs, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-
-const ticketStats = [
-  { label: 'Pending approvals', value: '4', detail: 'SPMS queue', icon: ClipboardCheck, tone: 'bg-amber-50 text-amber-700' },
-  { label: 'Scheduled departures', value: '5', detail: 'Next 48 hours', icon: Clock3, tone: 'bg-emerald-50 text-emerald-700' },
-];
 
 type TripTab = 'create' | 'my' | 'all' | 'approvals' | 'controls';
 
 export function TripTicketsPage() {
   const user = useUser();
   const [modal, setModal] = useState<{ open: boolean; message: string; status?: 'pending_approval'; referenceId?: string }>({ open: false, message: '' });
+  const [pendingCount, setPendingCount] = useState(0);
+  const [scheduledCount, setScheduledCount] = useState(0);
+  const [isLoadingStats, setIsLoadingStats] = useState(true);
 
   // Set default tab based on user role
   const defaultTab = user?.role === 'spms' ? 'approvals' : 'create';
   const [activeTab, setActiveTab] = useState<TripTab>(defaultTab);
+
+  // Load trip ticket stats
+  useEffect(() => {
+    if (!user?.organizationId) return;
+
+    const loadStats = async () => {
+      setIsLoadingStats(true);
+      try {
+        // Count pending approvals
+        const pendingQuery = query(
+          collection(db, 'trip_tickets'),
+          where('organizationId', '==', user.organizationId),
+          where('status', '==', 'pending_approval')
+        );
+        const pendingSnap = await getDocs(pendingQuery);
+        setPendingCount(pendingSnap.size);
+
+        // Count scheduled departures in next 48 hours
+        const now = new Date();
+        const next48Hours = new Date(now.getTime() + 48 * 60 * 60 * 1000);
+        const scheduledQuery = query(
+          collection(db, 'trip_tickets'),
+          where('organizationId', '==', user.organizationId),
+          where('status', 'in', ['approved', 'in_progress'])
+        );
+        const scheduledSnap = await getDocs(scheduledQuery);
+
+        // Filter by departure date in next 48 hours
+        const scheduled = scheduledSnap.docs.filter((doc) => {
+          const data = doc.data();
+          const departureDate = data.departureDate?.toDate?.() || null;
+          if (!departureDate) return false;
+          return departureDate >= now && departureDate <= next48Hours;
+        });
+        setScheduledCount(scheduled.length);
+      } catch (error) {
+        console.error('Failed to load trip ticket stats:', error);
+      } finally {
+        setIsLoadingStats(false);
+      }
+    };
+
+    loadStats();
+  }, [user?.organizationId]);
 
   const tabs = useMemo(() => {
     const items: { key: TripTab; label: string }[] = [];
@@ -124,7 +166,7 @@ export function TripTicketsPage() {
         <section className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-sky-500 via-indigo-600 to-blue-700 text-white shadow-xl">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.15),transparent_35%)]" />
           <div className="absolute -bottom-16 -right-16 h-64 w-64 rounded-full bg-white/10 blur-3xl" />
-          <div className="relative p-8 lg:p-10">
+          <div className="relative p-8 lg:p-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
             <div className="max-w-3xl">
               <p className="uppercase text-xs font-semibold tracking-[0.15em] text-blue-100">
                 Trip Tickets
@@ -154,6 +196,33 @@ export function TripTicketsPage() {
                     {tab.label}
                   </Button>
                 ))}
+              </div>
+            </div>
+
+            {/* Stats Card */}
+            <div className="bg-white/10 border border-white/20 rounded-2xl p-5 backdrop-blur w-full max-w-sm">
+              <p className="text-blue-100 text-sm font-medium mb-4">Trip Ticket Metrics</p>
+              <div className="space-y-3">
+                <div className="bg-white/10 rounded-xl px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <ClipboardCheck className="h-5 w-5 text-amber-200" />
+                    <div className="flex-1">
+                      <p className="text-xs text-blue-100">Pending Approvals</p>
+                      <p className="text-2xl font-bold">{isLoadingStats ? '...' : pendingCount}</p>
+                    </div>
+                  </div>
+                  <p className="text-xs text-blue-100 mt-1">SPMS queue</p>
+                </div>
+                <div className="bg-white/10 rounded-xl px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <Clock3 className="h-5 w-5 text-emerald-200" />
+                    <div className="flex-1">
+                      <p className="text-xs text-blue-100">Scheduled Departures</p>
+                      <p className="text-2xl font-bold">{isLoadingStats ? '...' : scheduledCount}</p>
+                    </div>
+                  </div>
+                  <p className="text-xs text-blue-100 mt-1">Next 48 hours</p>
+                </div>
               </div>
             </div>
           </div>

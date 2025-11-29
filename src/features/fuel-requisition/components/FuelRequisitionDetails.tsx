@@ -15,6 +15,7 @@ const statusColors: Record<string, string> = {
   RIS_ISSUED: 'bg-purple-100 text-purple-700',
   AWAITING_RECEIPT: 'bg-cyan-100 text-cyan-700',
   RECEIPT_SUBMITTED: 'bg-teal-100 text-teal-700',
+  RECEIPT_RETURNED: 'bg-amber-100 text-amber-700',
   COMPLETED: 'bg-emerald-100 text-emerald-700',
   RETURNED: 'bg-orange-100 text-orange-700',
   REJECTED: 'bg-red-100 text-red-700',
@@ -29,6 +30,7 @@ const statusLabels: Record<string, string> = {
   RIS_ISSUED: 'RIS Issued',
   AWAITING_RECEIPT: 'Awaiting Receipt',
   RECEIPT_SUBMITTED: 'Receipt Submitted',
+  RECEIPT_RETURNED: 'Receipt Returned',
   COMPLETED: 'Completed',
   RETURNED: 'Returned',
   REJECTED: 'Rejected',
@@ -38,9 +40,18 @@ const statusLabels: Record<string, string> = {
 export function FuelRequisitionDetails({ requisition, setView }: FuelRequisitionDetailsProps) {
   const user = useUser();
 
-  const canValidate = user?.role === 'emd' && (requisition.status === 'PENDING_EMD' || requisition.status === 'RETURNED');
+  const canValidate =
+    user?.role === 'emd' &&
+    (requisition.status === 'PENDING_EMD' ||
+      requisition.status === 'RETURNED' ||
+      requisition.status === 'EMD_VALIDATED');
   const canIssue = user?.role === 'spms' && requisition.status === 'EMD_VALIDATED';
-  const canSubmitReceipt = user?.role === 'driver' && (requisition.status === 'RIS_ISSUED' || requisition.status === 'AWAITING_RECEIPT');
+  const canSubmitReceipt =
+    user?.role === 'driver' &&
+    (requisition.status === 'RIS_ISSUED' ||
+      requisition.status === 'AWAITING_RECEIPT' ||
+      requisition.status === 'RECEIPT_SUBMITTED' ||
+      requisition.status === 'RECEIPT_RETURNED');
   const canVerifyReceipt = user?.role === 'emd' && requisition.status === 'RECEIPT_SUBMITTED';
 
   return (

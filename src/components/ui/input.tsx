@@ -12,21 +12,63 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
 }
 
 const Input = React.forwardRef<HTMLInputElement, InputProps>(
-  ({ className, type, label, error, helperText, id, toUppercase = false, showClearButton = true, onClear, onChange, value, ...props }, ref) => {
+  (
+    {
+      className,
+      type,
+      label,
+      error,
+      helperText,
+      id,
+      toUppercase = false,
+      showClearButton = true,
+      onClear,
+      onChange,
+      value,
+      defaultValue,
+      ...props
+    },
+    ref
+  ) => {
     const inputId = id || label?.toLowerCase().replace(/\s+/g, '-');
-    const [internalValue, setInternalValue] = React.useState(value || '');
+    const inputRef = React.useRef<HTMLInputElement | null>(null);
+    const [internalValue, setInternalValue] = React.useState<string>(() => {
+      if (value !== undefined) return String(value);
+      if (defaultValue !== undefined) return String(defaultValue);
+      return '';
+    });
     const [showPassword, setShowPassword] = React.useState(false);
+    const isControlled = value !== undefined;
+
+    const syncRef = (node: HTMLInputElement | null) => {
+      inputRef.current = node;
+      if (typeof ref === 'function') {
+        ref(node);
+      } else if (ref) {
+        ref.current = node;
+      }
+    };
 
     const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
       if (toUppercase) {
         event.target.value = event.target.value.toUpperCase();
       }
-      setInternalValue(event.target.value);
+
+      if (!isControlled) {
+        setInternalValue(event.target.value);
+      }
       onChange?.(event);
     };
 
     const handleClear = () => {
-      setInternalValue('');
+      if (inputRef.current) {
+        inputRef.current.value = '';
+      }
+
+      if (!isControlled) {
+        setInternalValue('');
+      }
+
       if (onClear) {
         onClear();
       } else if (onChange) {
@@ -39,17 +81,30 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
     };
 
     const togglePasswordVisibility = () => {
-      setShowPassword(!showPassword);
+      setShowPassword((prev) => !prev);
     };
 
     React.useEffect(() => {
-      setInternalValue(value || '');
-    }, [value]);
+      if (isControlled) {
+        setInternalValue(value === undefined ? '' : String(value));
+      }
+    }, [isControlled, value]);
 
-    const displayValue = value !== undefined ? value : internalValue;
+    // Sync internal value with uncontrolled updates (e.g., react-hook-form reset/setValue)
+    React.useEffect(() => {
+      if (!isControlled && inputRef.current) {
+        const currentVal = inputRef.current.value;
+        if (currentVal !== internalValue) {
+          setInternalValue(currentVal);
+        }
+      }
+    });
+
+    const displayValue = isControlled ? (value === undefined ? '' : String(value)) : internalValue;
     const isPasswordType = type === 'password';
     const inputType = isPasswordType && showPassword ? 'text' : type;
-    const showClear = showClearButton && displayValue && !props.disabled && type !== 'date' && type !== 'number' && !isPasswordType;
+    const showClear =
+      showClearButton && displayValue && !props.disabled && type !== 'date' && type !== 'number' && !isPasswordType;
     const showPasswordToggle = isPasswordType && displayValue && !props.disabled;
 
     return (
@@ -73,9 +128,10 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
               (showClear || showPasswordToggle) && 'pr-10',
               className
             )}
-            ref={ref}
+            ref={syncRef}
             onChange={handleChange}
-            value={displayValue}
+            value={isControlled ? displayValue : undefined}
+            defaultValue={!isControlled ? defaultValue : undefined}
             {...props}
           />
           {showClear && (

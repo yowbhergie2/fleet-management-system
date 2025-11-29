@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
-import { collection, query, where, getDocs, orderBy, updateDoc, doc, addDoc, serverTimestamp, Timestamp, getDoc, setDoc } from 'firebase/firestore';
-import { Fuel, FileText, User } from 'lucide-react';
+import { collection, query, where, getDocs, orderBy, updateDoc, doc, addDoc, serverTimestamp, Timestamp, getDoc, setDoc, increment } from 'firebase/firestore';
+import { User, CheckCircle, AlertCircle } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Button } from '@/components/ui';
 import { FuelRequestForm } from '@/features/fuel-requisition/components/FuelRequestForm';
@@ -10,9 +10,11 @@ import { FuelIssuanceForm } from '@/features/fuel-requisition/components/FuelIss
 import { ReceiptVerificationForm } from '@/features/fuel-requisition/components/ReceiptVerificationForm';
 import { ReceiptSubmissionForm } from '@/features/fuel-requisition/components/ReceiptSubmissionForm';
 import { FuelRequisitionDetails } from '@/features/fuel-requisition/components/FuelRequisitionDetails';
+import ReturnReceiptModal from '@/features/fuel-requisition/components/ReturnReceiptModal';
+import VoidRISModal from '@/features/fuel-requisition/components/VoidRISModal';
 import { db } from '@/lib/firebase';
 import { useUser } from '@/stores/authStore';
-import type { FuelRequisition, Contract } from '@/types';
+import type { FuelRequisition, Contract, ReceiptSubmissionPayload, FuelRequestSubmitPayload, ValidationSubmitPayload } from '@/types';
 
 type FuelTab = 'create' | 'my-requests' | 'pending-validation' | 'pending-verification' | 'pending-issuance' | 'all-requests';
 
@@ -28,7 +30,15 @@ export function FuelRequisitionsPage() {
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [requisitionToCancel, setRequisitionToCancel] = useState<FuelRequisition | null>(null);
+  const [editingRequisition, setEditingRequisition] = useState<FuelRequisition | null>(null);
+  const [receiptTarget, setReceiptTarget] = useState<FuelRequisition | null>(null);
+  const [voidTarget, setVoidTarget] = useState<FuelRequisition | null>(null);
+  const [returnTarget, setReturnTarget] = useState<FuelRequisition | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const isPositiveMessage = useMemo(() => {
+    const lower = successMessage.toLowerCase();
+    return lower.includes('success') || lower.includes('saved');
+  }, [successMessage]);
 
   // Set default tab based on user role
   const defaultTab = useMemo(() => {
@@ -92,14 +102,18 @@ export function FuelRequisitionsPage() {
             );
             break;
 
-          case 'pending-validation':
-            q = query(
-              collection(db, 'fuel_requisitions'),
-              where('status', 'in', ['PENDING_EMD', 'RETURNED']),
-              where('organizationId', '==', user.organizationId),
-              orderBy('createdAt', 'asc')
-            );
-            break;
+      case 'pending-validation':
+        const validationStatuses =
+          user?.role === 'emd' || user?.role === 'admin'
+            ? ['PENDING_EMD', 'RETURNED', 'EMD_VALIDATED']
+            : ['PENDING_EMD', 'RETURNED'];
+        q = query(
+          collection(db, 'fuel_requisitions'),
+          where('status', 'in', validationStatuses),
+          where('organizationId', '==', user.organizationId),
+          orderBy('createdAt', 'asc')
+        );
+        break;
 
           case 'pending-verification':
             q = query(
@@ -149,6 +163,11 @@ export function FuelRequisitionsPage() {
             chargeInvoiceDate: docData.chargeInvoiceDate?.toDate?.() || null,
             refuelDate: docData.refuelDate?.toDate?.() || null,
             emdValidatedAt: docData.emdValidatedAt?.toDate?.() || null,
+            lastEditedAt: docData.lastEditedAt?.toDate?.() || null,
+            emdLastEditedAt: docData.emdLastEditedAt?.toDate?.() || null,
+            receiptLastEditedAt: docData.receiptLastEditedAt?.toDate?.() || null,
+            voidedAt: docData.voidedAt?.toDate?.() || null,
+            receiptReturnedAt: docData.receiptReturnedAt?.toDate?.() || null,
           } as FuelRequisition;
         });
 
@@ -194,7 +213,7 @@ export function FuelRequisitionsPage() {
     setShowCancelModal(true);
   };
 
-  const handleCreateRequest = async (data: any) => {
+  const handleCreateRequest = async (data: FuelRequestSubmitPayload) => {
     if (!user) return;
 
     setIsSubmitting(true);
@@ -300,6 +319,24 @@ export function FuelRequisitionsPage() {
         verifiedAt: null,
         verificationRemarks: null,
 
+        // Edit tracking
+        lastEditedAt: null,
+        lastEditedBy: null,
+        lastEditedByName: null,
+        editCount: 0,
+        emdLastEditedAt: null,
+        receiptLastEditedAt: null,
+
+        // Void/Return tracking
+        voidedAt: null,
+        voidedBy: null,
+        voidedByName: null,
+        voidReason: null,
+        receiptReturnedAt: null,
+        receiptReturnedBy: null,
+        receiptReturnedByName: null,
+        receiptReturnRemarks: null,
+
         // Metadata
         createdBy: user.id,
         createdByName: user.displayName,
@@ -323,6 +360,67 @@ export function FuelRequisitionsPage() {
     } catch (error) {
       console.error('Failed to create fuel request:', error);
       setSuccessMessage('Failed to create fuel request. Please try again.');
+      setShowSuccessModal(true);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleUpdateRequest = async (data: FuelRequestSubmitPayload) => {
+    if (!user || !editingRequisition) return;
+
+    setIsSubmitting(true);
+    try {
+      const requisitionRef = doc(db, 'fuel_requisitions', editingRequisition.id);
+      const currentSnap = await getDoc(requisitionRef);
+      const currentUpdatedAt =
+        currentSnap.data()?.updatedAt?.toMillis?.() ?? currentSnap.data()?.updatedAt?.getTime?.();
+      const loadedUpdatedAt = data.loadedUpdatedAt ? new Date(data.loadedUpdatedAt).getTime() : null;
+
+      if (loadedUpdatedAt && currentUpdatedAt && currentUpdatedAt !== loadedUpdatedAt) {
+        setSuccessMessage('This request was updated by another user. Please refresh to continue.');
+        setShowSuccessModal(true);
+        return;
+      }
+
+      await updateDoc(requisitionRef, {
+        officeId: data.officeId,
+        officeName: data.officeName,
+        requestingOfficerId: data.requestingOfficerId || null,
+        requestingOfficerName: data.requestingOfficerName || '',
+        requestingOfficerPosition: data.requestingOfficerPosition || '',
+        approvingAuthorityId: data.approvingAuthorityId || null,
+        approvingAuthorityName: data.approvingAuthorityName || '',
+        approvingAuthorityPosition: data.approvingAuthorityPosition || '',
+        authorityPrefix: data.authorityPrefix || 'By Authority of the Regional Director:',
+        vehicleId: data.vehicleId,
+        dpwhNumber: data.vehicleDpwhNumber || '',
+        vehicleDescription: data.vehicleDescription || '',
+        plateNumber: data.vehiclePlateNumber || '',
+        fuelType: data.fuelType || 'DIESEL',
+        passengers: data.passengers,
+        destination: data.destination,
+        purpose: data.purpose,
+        inclusiveDateFrom: Timestamp.fromDate(new Date(data.inclusiveDateFrom)),
+        inclusiveDateTo: Timestamp.fromDate(new Date(data.inclusiveDateTo)),
+        requestedLiters: data.requestedLiters,
+        supplierId: data.supplierId || null,
+        supplierName: data.supplierName || null,
+        status: editingRequisition.status === 'RETURNED' ? 'PENDING_EMD' : editingRequisition.status,
+        lastEditedAt: serverTimestamp(),
+        lastEditedBy: user.id,
+        lastEditedByName: user.displayName,
+        editCount: increment(1),
+        updatedAt: serverTimestamp(),
+      });
+
+      setSuccessMessage('Fuel request updated successfully!');
+      setShowSuccessModal(true);
+      setEditingRequisition(null);
+      setRefreshTrigger(prev => prev + 1);
+    } catch (error) {
+      console.error('Failed to update fuel request:', error);
+      setSuccessMessage('Failed to update fuel request. Please try again.');
       setShowSuccessModal(true);
     } finally {
       setIsSubmitting(false);
@@ -360,18 +458,340 @@ export function FuelRequisitionsPage() {
     }
   };
 
+  const handleRequestSubmit = (data: FuelRequestSubmitPayload) => {
+    if (data.mode === 'edit') {
+      return handleUpdateRequest(data);
+    }
+    return handleCreateRequest(data);
+  };
+
+  const handleStartEditRequest = (req: FuelRequisition) => {
+    setEditingRequisition(req);
+    setReceiptTarget(null);
+  };
+
+  const handleCancelEdit = () => {
+    setEditingRequisition(null);
+  };
+
+  const handleStartReceipt = (req: FuelRequisition) => {
+    setReceiptTarget(req);
+    setEditingRequisition(null);
+  };
+
+  const handleCancelReceipt = () => {
+    setReceiptTarget(null);
+  };
+
+  const handleReceiptSubmit = async (data: ReceiptSubmissionPayload) => {
+    if (!user || !receiptTarget) return;
+
+    setIsSubmitting(true);
+    try {
+      const requisitionRef = doc(db, 'fuel_requisitions', receiptTarget.id);
+      const currentSnap = await getDoc(requisitionRef);
+      const currentUpdatedAt =
+        currentSnap.data()?.updatedAt?.toMillis?.() ?? currentSnap.data()?.updatedAt?.getTime?.();
+      const loadedUpdatedAt = data.loadedUpdatedAt ? new Date(data.loadedUpdatedAt).getTime() : null;
+
+      if (loadedUpdatedAt && currentUpdatedAt && currentUpdatedAt !== loadedUpdatedAt) {
+        setSuccessMessage('Receipt was updated by another user. Please refresh.');
+        setShowSuccessModal(true);
+        return;
+      }
+
+      await updateDoc(requisitionRef, {
+        chargeInvoiceNumber: data.chargeInvoiceNumber,
+        chargeInvoiceDate: Timestamp.fromDate(new Date(data.chargeInvoiceDate)),
+        refuelDate: data.refuelDate ? Timestamp.fromDate(new Date(data.refuelDate)) : null,
+        actualLiters: data.actualLiters,
+        odometerAtRefuel: typeof data.odometerAtRefuel === 'number' ? data.odometerAtRefuel : null,
+        receiptImageBase64: data.receiptImageBase64,
+        status: 'RECEIPT_SUBMITTED',
+        receiptLastEditedAt:
+          receiptTarget.status === 'RECEIPT_SUBMITTED' || receiptTarget.status === 'RECEIPT_RETURNED'
+            ? serverTimestamp()
+            : null,
+        updatedAt: serverTimestamp(),
+      });
+
+      setSuccessMessage('Receipt details saved.');
+      setShowSuccessModal(true);
+      setReceiptTarget(null);
+      setRefreshTrigger(prev => prev + 1);
+    } catch (error) {
+      console.error('Failed to submit receipt:', error);
+      setSuccessMessage('Failed to submit receipt. Please try again.');
+      setShowSuccessModal(true);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleValidationApprove = async (data: ValidationSubmitPayload) => {
+    if (!user || !selectedRequisition) return;
+
+    setIsSubmitting(true);
+    try {
+      const requisitionRef = doc(db, 'fuel_requisitions', selectedRequisition.id);
+      const currentSnap = await getDoc(requisitionRef);
+      const currentUpdatedAt =
+        currentSnap.data()?.updatedAt?.toMillis?.() ?? currentSnap.data()?.updatedAt?.getTime?.();
+      const loadedUpdatedAt = data.loadedUpdatedAt ? new Date(data.loadedUpdatedAt).getTime() : null;
+
+      if (loadedUpdatedAt && currentUpdatedAt && currentUpdatedAt !== loadedUpdatedAt) {
+        setSuccessMessage('This request was updated by another user. Please refresh to continue.');
+        setShowSuccessModal(true);
+        return;
+      }
+
+      const matchedContract = contracts.find((c) => c.id === data.contractId);
+
+      await updateDoc(requisitionRef, {
+        contractId: data.contractId,
+        contractNumber: matchedContract?.contractNumber || null,
+        supplierId: matchedContract?.supplierId || null,
+        supplierName: matchedContract?.supplierName || null,
+        validatedLiters: data.validatedLiters,
+        validUntil: data.validUntil ? Timestamp.fromDate(new Date(data.validUntil)) : null,
+        emdRemarks: data.remarks || null,
+        emdValidatedBy: selectedRequisition.emdValidatedBy || user.id,
+        emdValidatedByName: selectedRequisition.emdValidatedByName || user.displayName,
+        emdValidatedAt: selectedRequisition.emdValidatedAt
+          ? Timestamp.fromDate(new Date(selectedRequisition.emdValidatedAt))
+          : serverTimestamp(),
+        emdLastEditedAt: selectedRequisition.status === 'EMD_VALIDATED' ? serverTimestamp() : null,
+        status: 'EMD_VALIDATED',
+        updatedAt: serverTimestamp(),
+      });
+
+      setSuccessMessage('Validation saved.');
+      setShowSuccessModal(true);
+      setSelectedRequisition(null);
+      setRefreshTrigger((prev) => prev + 1);
+    } catch (error) {
+      console.error('Failed to save validation:', error);
+      setSuccessMessage('Failed to save validation. Please try again.');
+      setShowSuccessModal(true);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleValidationReturn = async (remarks: string, loadedUpdatedAt?: Date | null) => {
+    if (!user || !selectedRequisition) return;
+
+    setIsSubmitting(true);
+    try {
+      const requisitionRef = doc(db, 'fuel_requisitions', selectedRequisition.id);
+      const currentSnap = await getDoc(requisitionRef);
+      const currentUpdatedAt =
+        currentSnap.data()?.updatedAt?.toMillis?.() ?? currentSnap.data()?.updatedAt?.getTime?.();
+      const loaded = loadedUpdatedAt ? new Date(loadedUpdatedAt).getTime() : null;
+
+      if (loaded && currentUpdatedAt && currentUpdatedAt !== loaded) {
+        setSuccessMessage('This request was updated by another user. Please refresh to continue.');
+        setShowSuccessModal(true);
+        return;
+      }
+
+      await updateDoc(requisitionRef, {
+        status: 'RETURNED',
+        emdRemarks: remarks,
+        updatedAt: serverTimestamp(),
+      });
+
+      setSuccessMessage('Request returned to driver.');
+      setShowSuccessModal(true);
+      setSelectedRequisition(null);
+      setRefreshTrigger((prev) => prev + 1);
+    } catch (error) {
+      console.error('Failed to return request:', error);
+      setSuccessMessage('Failed to return request. Please try again.');
+      setShowSuccessModal(true);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleValidationReject = async (remarks: string, loadedUpdatedAt?: Date | null) => {
+    if (!user || !selectedRequisition) return;
+
+    setIsSubmitting(true);
+    try {
+      const requisitionRef = doc(db, 'fuel_requisitions', selectedRequisition.id);
+      const currentSnap = await getDoc(requisitionRef);
+      const currentUpdatedAt =
+        currentSnap.data()?.updatedAt?.toMillis?.() ?? currentSnap.data()?.updatedAt?.getTime?.();
+      const loaded = loadedUpdatedAt ? new Date(loadedUpdatedAt).getTime() : null;
+
+      if (loaded && currentUpdatedAt && currentUpdatedAt !== loaded) {
+        setSuccessMessage('This request was updated by another user. Please refresh to continue.');
+        setShowSuccessModal(true);
+        return;
+      }
+
+      await updateDoc(requisitionRef, {
+        status: 'REJECTED',
+        emdRemarks: remarks,
+        updatedAt: serverTimestamp(),
+      });
+
+      setSuccessMessage('Request rejected.');
+      setShowSuccessModal(true);
+      setSelectedRequisition(null);
+      setRefreshTrigger((prev) => prev + 1);
+    } catch (error) {
+      console.error('Failed to reject request:', error);
+      setSuccessMessage('Failed to reject request. Please try again.');
+      setShowSuccessModal(true);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleReturnReceiptStart = (req: FuelRequisition) => {
+    setReturnTarget(req);
+  };
+
+  const handleVoidStart = (req: FuelRequisition) => {
+    setVoidTarget(req);
+  };
+
+  const handleVerifyReceipt = async (data: { actualLiters: number; priceAtPurchase: number; remarks?: string }) => {
+    if (!user || !selectedRequisition) return;
+
+    setIsSubmitting(true);
+    try {
+      const requisitionRef = doc(db, 'fuel_requisitions', selectedRequisition.id);
+
+      // Concurrency protection: Check if requisition was modified
+      const currentSnap = await getDoc(requisitionRef);
+      if (!currentSnap.exists()) {
+        setSuccessMessage('Requisition not found. It may have been deleted.');
+        setShowSuccessModal(true);
+        return;
+      }
+
+      const currentData = currentSnap.data();
+      const currentUpdatedAt = currentData?.updatedAt?.toMillis?.() ?? currentData?.updatedAt?.getTime?.();
+      const loadedUpdatedAt = selectedRequisition.updatedAt ? new Date(selectedRequisition.updatedAt).getTime() : null;
+
+      if (loadedUpdatedAt && currentUpdatedAt && currentUpdatedAt !== loadedUpdatedAt) {
+        setSuccessMessage('This receipt was updated by another user. Please refresh and try again.');
+        setShowSuccessModal(true);
+        return;
+      }
+
+      // Calculate total amount
+      const totalAmount = data.actualLiters * data.priceAtPurchase;
+
+      // Deduct from contract balance
+      if (selectedRequisition.contractId) {
+        const contractRef = doc(db, 'contracts', selectedRequisition.contractId);
+        const contractSnap = await getDoc(contractRef);
+
+        if (contractSnap.exists()) {
+          const contractData = contractSnap.data();
+          const newBalance = (contractData.remainingBalance || 0) - totalAmount;
+
+          await updateDoc(contractRef, {
+            remainingBalance: newBalance,
+            status: newBalance <= 0 ? 'EXHAUSTED' : 'ACTIVE',
+            exhaustedAt: newBalance <= 0 ? serverTimestamp() : null,
+            updatedAt: serverTimestamp(),
+          });
+
+          // Create contract transaction
+          await addDoc(collection(db, 'contract_transactions'), {
+            contractId: selectedRequisition.contractId,
+            requisitionId: selectedRequisition.id,
+            risNumber: selectedRequisition.risNumber,
+            transactionType: 'DEDUCTION',
+            amount: totalAmount,
+            liters: data.actualLiters,
+            pricePerLiter: data.priceAtPurchase,
+            balanceBefore: contractData.remainingBalance || 0,
+            balanceAfter: newBalance,
+            remarks: data.remarks || null,
+            createdBy: user.id,
+            createdByName: user.displayName,
+            organizationId: user.organizationId,
+            createdAt: serverTimestamp(),
+          });
+        }
+      }
+
+      // Update requisition
+      await updateDoc(requisitionRef, {
+        actualLiters: data.actualLiters,
+        priceAtPurchase: data.priceAtPurchase,
+        totalAmount: totalAmount,
+        status: 'COMPLETED',
+        verifiedBy: user.id,
+        verifiedByName: user.displayName,
+        verifiedAt: serverTimestamp(),
+        verificationRemarks: data.remarks || null,
+        updatedAt: serverTimestamp(),
+      });
+
+      setSuccessMessage('Receipt verified and contract balance updated successfully!');
+      setShowSuccessModal(true);
+      setSelectedRequisition(null);
+      setRefreshTrigger((prev) => prev + 1);
+    } catch (error) {
+      console.error('Failed to verify receipt:', error);
+      setSuccessMessage('Failed to verify receipt. Please try again.');
+      setShowSuccessModal(true);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const renderContent = () => {
     switch (activeTab) {
       case 'create':
-        return <FuelRequestForm onSubmit={handleCreateRequest} isSubmitting={isSubmitting} />;
+        return <FuelRequestForm onSubmit={handleRequestSubmit} isSubmitting={isSubmitting} />;
 
       case 'my-requests':
       case 'all-requests':
+        if (editingRequisition) {
+          return (
+            <FuelRequestForm
+              mode="edit"
+              requisition={editingRequisition}
+              onSubmit={handleRequestSubmit}
+              onCancel={handleCancelEdit}
+              isSubmitting={isSubmitting}
+            />
+          );
+        }
+
+        if (receiptTarget) {
+          const receiptMode =
+            receiptTarget.status === 'RECEIPT_SUBMITTED' || receiptTarget.status === 'RECEIPT_RETURNED'
+              ? 'edit'
+              : 'submit';
+          return (
+            <ReceiptSubmissionForm
+              mode={receiptMode}
+              requisition={receiptTarget}
+              onSubmit={handleReceiptSubmit}
+              onCancel={handleCancelReceipt}
+              isSubmitting={isSubmitting}
+            />
+          );
+        }
+
         return (
           <FuelRequestList
             requests={requisitions}
             isLoading={isLoading}
+            currentUser={user || undefined}
             onView={handleViewRequest}
+            onEdit={user?.role === 'driver' ? handleStartEditRequest : undefined}
+            onSubmitReceipt={handleStartReceipt}
+            onVoid={user && (user.role === 'spms' || user.role === 'admin') ? handleVoidStart : undefined}
             onCancel={handleCancelClick}
           />
         );
@@ -382,15 +802,16 @@ export function FuelRequisitionsPage() {
             requisition={selectedRequisition}
             contracts={contracts}
             onBack={() => setSelectedRequisition(null)}
-            onSuccess={() => {
-              setSelectedRequisition(null);
-              setActiveTab((prev) => prev); // Reload
-            }}
+            onApprove={handleValidationApprove}
+            onReturn={handleValidationReturn}
+            onReject={handleValidationReject}
+            isSubmitting={isSubmitting}
           />
         ) : (
           <FuelRequestList
             requests={requisitions}
             isLoading={isLoading}
+            currentUser={user || undefined}
             onView={(req) => setSelectedRequisition(req)}
           />
         );
@@ -399,16 +820,15 @@ export function FuelRequisitionsPage() {
         return selectedRequisition ? (
           <ReceiptVerificationForm
             requisition={selectedRequisition}
-            onBack={() => setSelectedRequisition(null)}
-            onSuccess={() => {
-              setSelectedRequisition(null);
-              setActiveTab((prev) => prev); // Reload
-            }}
+            onVerify={handleVerifyReceipt}
+            isSubmitting={isSubmitting}
           />
         ) : (
           <FuelRequestList
             requests={requisitions}
             isLoading={isLoading}
+            currentUser={user || undefined}
+            onReturnReceipt={handleReturnReceiptStart}
             onView={(req) => setSelectedRequisition(req)}
           />
         );
@@ -428,6 +848,7 @@ export function FuelRequisitionsPage() {
           <FuelRequestList
             requests={requisitions}
             isLoading={isLoading}
+            currentUser={user || undefined}
             onView={(req) => setSelectedRequisition(req)}
           />
         );
@@ -554,16 +975,65 @@ export function FuelRequisitionsPage() {
         </div>
       )}
 
+      {voidTarget && user && (
+        <VoidRISModal
+          requisition={voidTarget}
+          user={user}
+          isOpen={!!voidTarget}
+          onClose={() => setVoidTarget(null)}
+          onSuccess={() => {
+            setVoidTarget(null);
+            setRefreshTrigger((prev) => prev + 1);
+          }}
+        />
+      )}
+
+      {returnTarget && user && (
+        <ReturnReceiptModal
+          requisition={returnTarget}
+          user={user}
+          isOpen={!!returnTarget}
+          onClose={() => setReturnTarget(null)}
+          onSuccess={() => {
+            setReturnTarget(null);
+            setRefreshTrigger((prev) => prev + 1);
+          }}
+        />
+      )}
+
       {/* Success/Error Modal */}
       {showSuccessModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-            <h3 className="text-lg font-semibold mb-4">
-              {successMessage.includes('success') ? '✓ Success' : '✗ Error'}
-            </h3>
-            <p className="text-gray-600 mb-6">{successMessage}</p>
-            <div className="flex justify-end">
-              <Button onClick={() => setShowSuccessModal(false)}>
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full overflow-hidden">
+            {/* Header with Icon */}
+            <div className={`px-6 py-4 ${isPositiveMessage ? 'bg-green-50' : 'bg-amber-50'}`}>
+              <div className="flex items-center gap-3">
+                {isPositiveMessage ? (
+                  <div className="flex-shrink-0 w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
+                    <CheckCircle className="w-6 h-6 text-green-600" />
+                  </div>
+                ) : (
+                  <div className="flex-shrink-0 w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
+                    <AlertCircle className="w-6 h-6 text-amber-600" />
+                  </div>
+                )}
+                <h3 className={`text-lg font-semibold ${isPositiveMessage ? 'text-green-900' : 'text-amber-900'}`}>
+                  {isPositiveMessage ? 'Success' : 'Notice'}
+                </h3>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div className="px-6 py-4">
+              <p className="text-gray-700">{successMessage}</p>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 bg-gray-50 flex justify-end">
+              <Button
+                onClick={() => setShowSuccessModal(false)}
+                className={isPositiveMessage ? 'bg-green-600 hover:bg-green-700' : 'bg-amber-600 hover:bg-amber-700'}
+              >
                 OK
               </Button>
             </div>

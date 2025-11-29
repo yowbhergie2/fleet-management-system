@@ -39,6 +39,10 @@ export function SuppliersPage() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [nameSuggestions, setNameSuggestions] = useState<string[]>([]);
+  const [addressSuggestions, setAddressSuggestions] = useState<string[]>([]);
+  const [showNameDropdown, setShowNameDropdown] = useState(false);
+  const [showAddressDropdown, setShowAddressDropdown] = useState(false);
   const [modal, setModal] = useState<{
     type: 'success' | 'error' | 'confirm';
     title: string;
@@ -54,6 +58,7 @@ export function SuppliersPage() {
     register,
     handleSubmit,
     reset,
+    watch,
     formState: { errors },
   } = useForm<SupplierFormData>({
     resolver: zodResolver(supplierSchema),
@@ -61,6 +66,43 @@ export function SuppliersPage() {
       status: 'ACTIVE',
     },
   });
+
+  const nameValue = watch('name');
+  const addressValue = watch('address');
+
+  const STORAGE_KEYS = {
+    name: 'supplier_name_suggestions',
+    address: 'supplier_address_suggestions',
+  };
+
+  const loadLocalSuggestions = (key: string): string[] => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const persistSuggestions = (key: string, values: string[]) => {
+    try {
+      localStorage.setItem(key, JSON.stringify(values.slice(0, 15)));
+    } catch {
+      // ignore storage errors
+    }
+  };
+
+  const addSuggestion = (key: 'name' | 'address', value: string) => {
+    const clean = value.trim();
+    if (clean.length < 2) return;
+    const current = key === 'name' ? nameSuggestions : addressSuggestions;
+    const next = [clean, ...current.filter((v) => v !== clean)].slice(0, 15);
+    if (key === 'name') setNameSuggestions(next);
+    if (key === 'address') setAddressSuggestions(next);
+    persistSuggestions(STORAGE_KEYS[key], next);
+  };
 
   const stats = [
     { label: 'Total Suppliers', value: suppliers.length, accent: 'bg-blue-50 text-blue-700' },
@@ -97,6 +139,11 @@ export function SuppliersPage() {
     loadSuppliers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.organizationId]);
+
+  useEffect(() => {
+    setNameSuggestions(loadLocalSuggestions(STORAGE_KEYS.name));
+    setAddressSuggestions(loadLocalSuggestions(STORAGE_KEYS.address));
+  }, []);
 
   const onSubmit = async (data: SupplierFormData) => {
     if (!user?.organizationId) {
@@ -137,6 +184,10 @@ export function SuppliersPage() {
         await loadSuppliers();
         showSuccess('Supplier added successfully!');
       }
+
+      // Save to autocomplete suggestions
+      if (data.name) addSuggestion('name', data.name);
+      if (data.address) addSuggestion('address', data.address);
 
       reset({
         name: '',
@@ -346,21 +397,79 @@ export function SuppliersPage() {
             <CardContent className="pt-6">
               <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Input
-                    label="Supplier Name"
-                    placeholder="e.g., Petron Gas Station"
-                    error={errors.name?.message}
-                    required
-                    toUppercase
-                    {...register('name')}
-                  />
-                  <Input
-                    label="Address"
-                    placeholder="e.g., 123 Main St, Tuguegarao City"
-                    error={errors.address?.message}
-                    required
-                    {...register('address')}
-                  />
+                  <div className="relative">
+                    <Input
+                      label="Supplier Name"
+                      placeholder="e.g., Petron Gas Station"
+                      error={errors.name?.message}
+                      required
+                      toUppercase
+                      autoComplete="organization"
+                      {...register('name')}
+                      onFocus={() => setShowNameDropdown(true)}
+                      onBlur={() => setTimeout(() => setShowNameDropdown(false), 200)}
+                    />
+                    {showNameDropdown && nameSuggestions.length > 0 && (
+                      <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-48 overflow-y-auto">
+                        <div className="px-3 py-2 text-xs font-semibold text-gray-500 border-b bg-gray-50">
+                          Recent Supplier Names
+                        </div>
+                        {nameSuggestions
+                          .filter((s) => !nameValue || s.toLowerCase().includes(nameValue.toLowerCase()))
+                          .slice(0, 8)
+                          .map((suggestion, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              className="w-full px-3 py-2 text-left text-sm hover:bg-blue-50 focus:bg-blue-50 focus:outline-none"
+                              onClick={() => {
+                                const event = { target: { name: 'name', value: suggestion } } as any;
+                                register('name').onChange(event);
+                                setShowNameDropdown(false);
+                              }}
+                            >
+                              {suggestion}
+                            </button>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <Input
+                      label="Address"
+                      placeholder="e.g., 123 Main St, Tuguegarao City"
+                      error={errors.address?.message}
+                      required
+                      autoComplete="street-address"
+                      {...register('address')}
+                      onFocus={() => setShowAddressDropdown(true)}
+                      onBlur={() => setTimeout(() => setShowAddressDropdown(false), 200)}
+                    />
+                    {showAddressDropdown && addressSuggestions.length > 0 && (
+                      <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-48 overflow-y-auto">
+                        <div className="px-3 py-2 text-xs font-semibold text-gray-500 border-b bg-gray-50">
+                          Recent Addresses
+                        </div>
+                        {addressSuggestions
+                          .filter((s) => !addressValue || s.toLowerCase().includes(addressValue.toLowerCase()))
+                          .slice(0, 8)
+                          .map((suggestion, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              className="w-full px-3 py-2 text-left text-sm hover:bg-blue-50 focus:bg-blue-50 focus:outline-none"
+                              onClick={() => {
+                                const event = { target: { name: 'address', value: suggestion } } as any;
+                                register('address').onChange(event);
+                                setShowAddressDropdown(false);
+                              }}
+                            >
+                              {suggestion}
+                            </button>
+                          ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -1,4 +1,6 @@
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 import {
   ArrowRight,
   BarChart3,
@@ -6,6 +8,7 @@ import {
   CalendarClock,
   CheckCircle2,
   FileText,
+  Fuel,
   MapPin,
   ShieldCheck,
   Truck,
@@ -13,263 +16,309 @@ import {
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { Button, Card, CardContent, CardHeader, CardTitle, Badge } from '@/components/ui';
 import { useUser } from '@/stores/authStore';
-
-const metricCards = [
-  { label: 'Trip tickets in progress', value: '12', change: '+3 vs last week', icon: FileText, accent: 'bg-blue-100 text-blue-700' },
-  { label: 'Pending approvals', value: '4', change: 'SPMS queue', icon: ShieldCheck, accent: 'bg-amber-100 text-amber-700' },
-  { label: 'Active vehicles', value: '18', change: '3 under maintenance', icon: Truck, accent: 'bg-emerald-100 text-emerald-700' },
-  { label: 'On-time departures', value: '92%', change: 'Last 30 days', icon: BarChart3, accent: 'bg-indigo-100 text-indigo-700' },
-];
-
-const upcomingTrips = [
-  { id: 'TT-2025-011', destination: 'Tuguegarao City Hall', driver: 'Juan Dela Cruz', date: 'Today • 2:00 PM', status: 'In progress' },
-  { id: 'TT-2025-012', destination: 'Ilagan District Office', driver: 'Maria Santos', date: 'Tomorrow • 8:30 AM', status: 'Queued' },
-  { id: 'TT-2025-013', destination: 'Project Site - Aparri', driver: 'Rico Tan', date: 'Mar 2 • 6:00 AM', status: 'Scheduled' },
-];
-
-const fleetHighlights = [
-  { title: 'Fuel-efficient picks', value: 'Hilux 2024 • ABC 1234', hint: 'Ready and fully fueled', icon: Truck },
-  { title: 'Quick approval lane', value: '4 requests', hint: 'SPMS review pending', icon: ShieldCheck },
-  { title: 'Routes with longest distance', value: 'Cauayan ↔ Aparri', hint: 'Plan fuel stopovers', icon: MapPin },
-];
-
-const alerts = [
-  { label: 'Vehicle maintenance', detail: 'Ranger XLT (XYZ 5678) due for PMS next week', tone: 'warning' as const },
-  { label: 'Document follow-up', detail: '3 drivers need to upload new licenses', tone: 'info' as const },
-  { label: 'Fuel contract', detail: 'Renewal draft ready for review', tone: 'info' as const },
-];
+import { db } from '@/lib/firebase';
+import type { FuelRequisition } from '@/types';
 
 export function DashboardPage() {
   const user = useUser();
   const navigate = useNavigate();
+  const [fuelStats, setFuelStats] = useState({
+    pending: 0,
+    validated: 0,
+    issued: 0,
+    completed: 0,
+  });
+  const [recentRequests, setRecentRequests] = useState<FuelRequisition[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user?.organizationId) return;
+
+    const loadDashboardData = async () => {
+      setIsLoading(true);
+      try {
+        // Load fuel requisition stats
+        const fuelQuery = query(
+          collection(db, 'fuel_requisitions'),
+          where('organizationId', '==', user.organizationId)
+        );
+        const fuelSnap = await getDocs(fuelQuery);
+
+        const stats = {
+          pending: 0,
+          validated: 0,
+          issued: 0,
+          completed: 0,
+        };
+
+        fuelSnap.docs.forEach((doc) => {
+          const data = doc.data();
+          if (data.status === 'PENDING_EMD' || data.status === 'RETURNED') stats.pending++;
+          else if (data.status === 'EMD_VALIDATED') stats.validated++;
+          else if (data.status === 'RIS_ISSUED' || data.status === 'RECEIPT_SUBMITTED') stats.issued++;
+          else if (data.status === 'COMPLETED') stats.completed++;
+        });
+
+        setFuelStats(stats);
+
+        // Load recent fuel requests
+        const recentQuery = query(
+          collection(db, 'fuel_requisitions'),
+          where('organizationId', '==', user.organizationId),
+          orderBy('createdAt', 'desc'),
+          limit(5)
+        );
+        const recentSnap = await getDocs(recentQuery);
+        const requests = recentSnap.docs.map((doc) => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            ...data,
+            inclusiveDateFrom: data.inclusiveDateFrom?.toDate?.() || new Date(),
+            inclusiveDateTo: data.inclusiveDateTo?.toDate?.() || new Date(),
+            createdAt: data.createdAt?.toDate?.() || new Date(),
+            updatedAt: data.updatedAt?.toDate?.() || new Date(),
+          } as FuelRequisition;
+        });
+        setRecentRequests(requests);
+      } catch (error) {
+        console.error('Failed to load dashboard data:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadDashboardData();
+  }, [user?.organizationId]);
+
+  const getStatusBadgeVariant = (status: string) => {
+    if (status === 'COMPLETED') return 'success';
+    if (status === 'PENDING_EMD' || status === 'RETURNED') return 'warning';
+    if (status === 'REJECTED' || status === 'CANCELLED') return 'destructive';
+    return 'info';
+  };
+
+  const getStatusLabel = (status: string) => {
+    const labels: Record<string, string> = {
+      PENDING_EMD: 'Pending Validation',
+      RETURNED: 'Returned',
+      EMD_VALIDATED: 'Validated',
+      RIS_ISSUED: 'RIS Issued',
+      RECEIPT_SUBMITTED: 'Receipt Submitted',
+      COMPLETED: 'Completed',
+      REJECTED: 'Rejected',
+      CANCELLED: 'Cancelled',
+    };
+    return labels[status] || status;
+  };
 
   return (
     <DashboardLayout>
       <div className="space-y-6">
+        {/* Hero Section */}
         <section className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-sky-500 via-indigo-600 to-blue-700 text-white shadow-xl">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.15),transparent_35%)]" />
           <div className="absolute -bottom-16 -right-16 h-64 w-64 rounded-full bg-white/10 blur-3xl" />
-          <div className="relative p-8 lg:p-10 flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-col gap-5 w-full max-w-3xl">
-              <p className="uppercase text-xs font-semibold tracking-[0.15em] text-blue-100">
-                DPWH Regional Office II
-              </p>
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between lg:gap-6">
-                <div className="max-w-2xl">
-                  <h1 className="text-3xl lg:text-4xl font-bold leading-tight">
-                    Welcome back{user?.displayName ? `, ${user.displayName}` : ''}! Here’s your operations snapshot.
-                  </h1>
-                  <p className="text-blue-100 mt-3 text-base">
-                    Keep trip tickets moving, keep vehicles healthy, and keep teams aligned — all from this single view.
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    className="bg-white text-blue-700 hover:bg-blue-50"
-                    onClick={() => navigate('/trip-tickets')}
-                  >
-                    <FileText className="h-4 w-4 mr-2" />
-                    Create trip ticket
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="border border-white/70 text-white hover:bg-white/10"
-                    onClick={() => navigate('/vehicles')}
-                  >
-                    <Truck className="h-4 w-4 mr-2" />
-                    Manage vehicles
-                  </Button>
-                </div>
-              </div>
-              <p className="text-blue-100 text-sm">
-                Quick overview of trips, approvals, and fleet status tailored to your role.
+          <div className="relative p-8 lg:p-10">
+            <p className="uppercase text-xs font-semibold tracking-[0.15em] text-blue-100">
+              DPWH Regional Office II
+            </p>
+            <div className="mt-4 max-w-2xl">
+              <h1 className="text-3xl lg:text-4xl font-bold leading-tight">
+                Welcome back{user?.displayName ? `, ${user.displayName}` : ''}!
+              </h1>
+              <p className="text-blue-100 mt-3 text-base">
+                Manage fuel requisitions, track RIS issuance, and monitor fleet operations from this centralized dashboard.
               </p>
             </div>
-            <div className="bg-white/10 border border-white/20 rounded-2xl p-5 w-full max-w-sm backdrop-blur">
-              <div className="flex items-center justify-between text-sm text-blue-50">
-                <span>Approvals</span>
-                <Badge className="bg-white/20 text-white border-white/30">Today</Badge>
-              </div>
-              <div className="mt-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-blue-100">Pending review</p>
-                    <p className="text-lg font-semibold">4 trip tickets</p>
-                  </div>
-                  <ShieldCheck className="h-10 w-10 text-white/80" />
-                </div>
-                <div className="flex items-center justify-between border-t border-white/10 pt-3">
-                  <div>
-                    <p className="text-sm text-blue-100">Vehicles ready</p>
-                    <p className="text-lg font-semibold">18 active</p>
-                  </div>
-                  <Truck className="h-10 w-10 text-white/80" />
-                </div>
-              </div>
+            <div className="flex flex-wrap gap-3 mt-6">
+              <Button
+                size="sm"
+                variant="secondary"
+                className="bg-white text-blue-700 hover:bg-blue-50"
+                onClick={() => navigate('/fuel-requisitions')}
+              >
+                <Fuel className="h-4 w-4 mr-2" />
+                Create fuel request
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="border border-white/70 text-white hover:bg-white/10"
+                onClick={() => navigate('/vehicles')}
+              >
+                <Truck className="h-4 w-4 mr-2" />
+                Manage vehicles
+              </Button>
             </div>
           </div>
         </section>
 
         {/* Metrics */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-          {metricCards.map((item) => {
-            const Icon = item.icon;
-            return (
-              <Card key={item.label} className="border-0 shadow-lg shadow-blue-50/70">
-                <CardHeader className="flex flex-row items-start justify-between pb-3">
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">{item.label}</p>
-                    <p className="text-2xl font-bold text-gray-900 mt-1">{item.value}</p>
-                  </div>
-                  <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${item.accent}`}>
-                    <Icon className="h-4 w-4 mr-1.5" />
-                    {item.change}
-                  </span>
-                </CardHeader>
-              </Card>
-            );
-          })}
+          <Card className="border-0 shadow-lg shadow-blue-50/70">
+            <CardHeader className="flex flex-row items-start justify-between pb-3">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Pending Validation</p>
+                <p className="text-3xl font-bold text-gray-900 mt-1">{isLoading ? '...' : fuelStats.pending}</p>
+              </div>
+              <span className="inline-flex items-center rounded-full px-3 py-1.5 text-xs font-semibold bg-amber-100 text-amber-700">
+                <FileText className="h-4 w-4 mr-1.5" />
+                EMD Queue
+              </span>
+            </CardHeader>
+          </Card>
+
+          <Card className="border-0 shadow-lg shadow-blue-50/70">
+            <CardHeader className="flex flex-row items-start justify-between pb-3">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Validated Requests</p>
+                <p className="text-3xl font-bold text-gray-900 mt-1">{isLoading ? '...' : fuelStats.validated}</p>
+              </div>
+              <span className="inline-flex items-center rounded-full px-3 py-1.5 text-xs font-semibold bg-blue-100 text-blue-700">
+                <ShieldCheck className="h-4 w-4 mr-1.5" />
+                SPMS Queue
+              </span>
+            </CardHeader>
+          </Card>
+
+          <Card className="border-0 shadow-lg shadow-blue-50/70">
+            <CardHeader className="flex flex-row items-start justify-between pb-3">
+              <div>
+                <p className="text-sm font-medium text-gray-600">RIS Issued</p>
+                <p className="text-3xl font-bold text-gray-900 mt-1">{isLoading ? '...' : fuelStats.issued}</p>
+              </div>
+              <span className="inline-flex items-center rounded-full px-3 py-1.5 text-xs font-semibold bg-indigo-100 text-indigo-700">
+                <Fuel className="h-4 w-4 mr-1.5" />
+                Active
+              </span>
+            </CardHeader>
+          </Card>
+
+          <Card className="border-0 shadow-lg shadow-blue-50/70">
+            <CardHeader className="flex flex-row items-start justify-between pb-3">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Completed</p>
+                <p className="text-3xl font-bold text-gray-900 mt-1">{isLoading ? '...' : fuelStats.completed}</p>
+              </div>
+              <span className="inline-flex items-center rounded-full px-3 py-1.5 text-xs font-semibold bg-emerald-100 text-emerald-700">
+                <CheckCircle2 className="h-4 w-4 mr-1.5" />
+                Total
+              </span>
+            </CardHeader>
+          </Card>
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          {/* Trip tickets table */}
+          {/* Recent Fuel Requests */}
           <Card className="border-0 shadow-lg shadow-blue-50/70 xl:col-span-2">
             <CardHeader className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-              <CardTitle className="flex items-center gap-2 text-2xl">
-                <FileText className="h-5 w-5 text-blue-600" />
-                Trip ticket pipeline
+              <CardTitle className="flex items-center gap-2 text-xl">
+                <Fuel className="h-5 w-5 text-blue-600" />
+                Recent Fuel Requests
               </CardTitle>
-              <Button variant="outline" size="sm" onClick={() => navigate('/trip-tickets')}>
+              <Button variant="outline" size="sm" onClick={() => navigate('/fuel-requisitions')}>
                 View all
               </Button>
             </CardHeader>
             <CardContent className="pt-0">
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="text-left text-sm text-gray-500">
-                    <tr>
-                      <th className="py-3">Serial</th>
-                      <th className="py-3">Destination</th>
-                      <th className="py-3">Driver</th>
-                      <th className="py-3">Schedule</th>
-                      <th className="py-3 text-right">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 text-sm">
-                    {upcomingTrips.map((trip) => (
-                      <tr key={trip.id} className="hover:bg-gray-50">
-                        <td className="py-3 font-semibold text-gray-900">{trip.id}</td>
-                        <td className="py-3">
-                          <div className="flex items-center gap-2 text-gray-800">
-                            <MapPin className="h-4 w-4 text-blue-500" />
-                            {trip.destination}
-                          </div>
-                        </td>
-                        <td className="py-3 text-gray-700">{trip.driver}</td>
-                        <td className="py-3 text-gray-600">{trip.date}</td>
-                        <td className="py-3 text-right">
-                          <Badge variant={trip.status === 'In progress' ? 'success' : trip.status === 'Queued' ? 'warning' : 'info'}>
-                            {trip.status}
-                          </Badge>
-                        </td>
+              {isLoading ? (
+                <div className="text-center py-8 text-gray-500">Loading...</div>
+              ) : recentRequests.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">No fuel requests yet</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="text-left text-sm text-gray-500">
+                      <tr>
+                        <th className="py-3">Reference</th>
+                        <th className="py-3">Driver</th>
+                        <th className="py-3">Vehicle</th>
+                        <th className="py-3">Liters</th>
+                        <th className="py-3 text-right">Status</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 text-sm">
+                      {recentRequests.map((req) => (
+                        <tr key={req.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => navigate('/fuel-requisitions')}>
+                          <td className="py-3 font-mono text-xs font-semibold text-gray-900">
+                            FR-{String(req.refNumber || 0).padStart(6, '0')}
+                          </td>
+                          <td className="py-3 text-gray-800">{req.driverName}</td>
+                          <td className="py-3 text-gray-700">{req.dpwhNumber}</td>
+                          <td className="py-3 text-gray-600">{req.requestedLiters}L</td>
+                          <td className="py-3 text-right">
+                            <Badge variant={getStatusBadgeVariant(req.status)}>
+                              {getStatusLabel(req.status)}
+                            </Badge>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </CardContent>
           </Card>
 
-          {/* Side column */}
+          {/* Side Column */}
           <div className="space-y-6">
-            <Card className="border-0 shadow-lg shadow-blue-50/70">
-              <CardHeader className="flex flex-row items-start justify-between">
-                <div>
-                  <CardTitle className="text-xl">Fleet highlights</CardTitle>
-                  <p className="text-sm text-gray-600 mt-1">Quick cues for assigning vehicles</p>
-                </div>
-                <Badge variant="info">Live</Badge>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {fleetHighlights.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <div key={item.title} className="p-4 rounded-xl border border-gray-100 bg-gray-50/80 hover:bg-white transition-colors">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm text-gray-500">{item.title}</p>
-                          <p className="text-base font-semibold text-gray-900">{item.value}</p>
-                        </div>
-                        <Icon className="h-5 w-5 text-blue-600" />
-                      </div>
-                      <p className="text-xs text-gray-500 mt-2">{item.hint}</p>
-                    </div>
-                  );
-                })}
-              </CardContent>
-            </Card>
-
+            {/* Quick Actions */}
             <Card className="border-0 shadow-lg shadow-blue-50/70">
               <CardHeader className="flex flex-row items-center justify-between">
-                <div>
-                  <CardTitle className="text-xl">Actions & alerts</CardTitle>
-                  <p className="text-sm text-gray-600 mt-1">Stay ahead of blockers</p>
-                </div>
-                <Bell className="h-5 w-5 text-amber-500" />
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {alerts.map((alert) => (
-                  <div
-                    key={alert.detail}
-                    className="flex items-start gap-3 p-3 rounded-lg border border-gray-100 bg-white"
-                  >
-                    <div
-                      className={`h-8 w-8 rounded-full flex items-center justify-center text-sm font-semibold ${
-                        alert.tone === 'warning' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'
-                      }`}
-                    >
-                      !
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-semibold text-gray-900">{alert.label}</p>
-                      <p className="text-sm text-gray-600">{alert.detail}</p>
-                    </div>
-                    <ArrowRight className="h-4 w-4 text-gray-400" />
-                  </div>
-                ))}
-                <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <CalendarClock className="h-4 w-4" />
-                    <span>Next milestone: Fuel contract review</span>
-                  </div>
-                  <Button variant="ghost" size="sm" onClick={() => navigate('/vehicles')}>
-                    Open
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="border-0 shadow-lg shadow-blue-50/70">
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle className="text-xl">Quick actions</CardTitle>
+                <CardTitle className="text-xl">Quick Actions</CardTitle>
                 <CheckCircle2 className="h-5 w-5 text-emerald-500" />
               </CardHeader>
               <CardContent className="space-y-3">
-                <Button className="w-full justify-between" variant="primary" onClick={() => navigate('/trip-tickets')}>
-                  Start a new trip ticket
-                  <ArrowRight className="h-4 w-4" />
-                </Button>
+                {user?.role === 'driver' && (
+                  <Button className="w-full justify-between" variant="primary" onClick={() => navigate('/fuel-requisitions')}>
+                    Create Fuel Request
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                )}
+                {(user?.role === 'emd' || user?.role === 'admin') && (
+                  <Button className="w-full justify-between" variant="primary" onClick={() => navigate('/fuel-requisitions')}>
+                    Validate Requests
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                )}
+                {(user?.role === 'spms' || user?.role === 'admin') && (
+                  <Button className="w-full justify-between" variant="outline" onClick={() => navigate('/fuel-requisitions')}>
+                    Issue RIS Numbers
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                )}
                 <Button className="w-full justify-between" variant="outline" onClick={() => navigate('/vehicles')}>
-                  Assign a vehicle
+                  Manage Vehicles
                   <ArrowRight className="h-4 w-4" />
                 </Button>
-                <Button className="w-full justify-between" variant="secondary" onClick={() => navigate('/admin/users')}>
-                  Manage users
-                  <ArrowRight className="h-4 w-4" />
-                </Button>
+                {user?.role === 'admin' && (
+                  <Button className="w-full justify-between" variant="secondary" onClick={() => navigate('/admin/users')}>
+                    Manage Users
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* System Info */}
+            <Card className="border-0 shadow-lg shadow-blue-50/70">
+              <CardHeader>
+                <CardTitle className="text-xl">System Information</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                <div className="flex justify-between py-2 border-b border-gray-100">
+                  <span className="text-gray-600">Organization</span>
+                  <span className="font-semibold text-gray-900">DPWH RO-II</span>
+                </div>
+                <div className="flex justify-between py-2 border-b border-gray-100">
+                  <span className="text-gray-600">Your Role</span>
+                  <Badge variant="info">{user?.role?.toUpperCase()}</Badge>
+                </div>
+                <div className="flex justify-between py-2">
+                  <span className="text-gray-600">Module Version</span>
+                  <span className="font-mono text-xs text-gray-900">v2.4</span>
+                </div>
               </CardContent>
             </Card>
           </div>

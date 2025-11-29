@@ -572,6 +572,7 @@ export function TripTicketForm({ onSubmit, onGeneratePDF, isLoading = false, ini
                     label="Period Covered From"
                     error={errors.periodCoveredFrom?.message}
                     required
+                    autoComplete="on"
                     disabled={lookupLoading || isLoading}
                     value={field.value}
                     onChange={field.onChange}
@@ -587,6 +588,7 @@ export function TripTicketForm({ onSubmit, onGeneratePDF, isLoading = false, ini
                     label="Period Covered To"
                     error={errors.periodCoveredTo?.message}
                     required
+                    autoComplete="on"
                     disabled={lookupLoading || isLoading}
                     value={field.value}
                     onChange={field.onChange}
@@ -626,6 +628,7 @@ export function TripTicketForm({ onSubmit, onGeneratePDF, isLoading = false, ini
                   <Input
                     placeholder="Passenger name"
                     toUppercase
+                    autoComplete="name"
                     value={passenger.name}
                     disabled={lookupLoading || isLoading}
                     onChange={(e) => updatePassenger(index, e.target.value)}
@@ -682,6 +685,7 @@ export function TripTicketForm({ onSubmit, onGeneratePDF, isLoading = false, ini
                     placeholder="e.g., City Hall, Quezon City"
                     error={errors.destination?.message}
                     required
+                    autoComplete="on"
                     disabled={lookupLoading || isLoading}
                     toUppercase
                     value={field.value}
@@ -722,6 +726,7 @@ export function TripTicketForm({ onSubmit, onGeneratePDF, isLoading = false, ini
               error={errors.purposes?.message}
               helperText="Enter each purpose on a separate line"
               required
+              autoComplete="on"
               disabled={lookupLoading || isLoading}
               {...register('purposes')}
               toUppercase

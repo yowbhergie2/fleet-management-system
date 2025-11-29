@@ -240,6 +240,7 @@ export type FuelRequisitionStatus =
   | 'RIS_ISSUED'
   | 'AWAITING_RECEIPT'
   | 'RECEIPT_SUBMITTED'
+  | 'RECEIPT_RETURNED' // NEW v2.4: EMD returned receipt to driver
   | 'COMPLETED'
   | 'RETURNED'
   | 'REJECTED'
@@ -432,6 +433,31 @@ export interface FuelRequisition {
   verifiedAt: Date | null;
   verificationRemarks: string | null;
 
+  // Edit Tracking (v2.4)
+  // Driver edit tracking
+  lastEditedAt: Date | null;
+  lastEditedBy: string | null;
+  lastEditedByName: string | null;
+  editCount: number;
+
+  // EMD validation edit tracking
+  emdLastEditedAt: Date | null;
+
+  // Receipt edit tracking
+  receiptLastEditedAt: Date | null;
+
+  // Void tracking (RIS_ISSUED → CANCELLED)
+  voidedAt: Date | null;
+  voidedBy: string | null;
+  voidedByName: string | null;
+  voidReason: string | null;
+
+  // Receipt return tracking (RECEIPT_SUBMITTED → RECEIPT_RETURNED)
+  receiptReturnedAt: Date | null;
+  receiptReturnedBy: string | null;
+  receiptReturnedByName: string | null;
+  receiptReturnRemarks: string | null;
+
   // Metadata
   createdBy: string;
   createdByName: string;
@@ -498,4 +524,49 @@ export interface FuelRequestFormData {
   destination: string;
   purpose: string;
   requestedLiters: number;
+}
+
+/**
+ * Normalized payload used by FuelRequestForm submit handler (supports edit mode)
+ */
+export interface FuelRequestSubmitPayload extends FuelRequestFormData {
+  mode?: 'create' | 'edit';
+  officeName: string;
+  vehicleDpwhNumber?: string;
+  vehiclePlateNumber?: string;
+  vehicleDescription?: string;
+  fuelType?: string;
+  supplierName?: string | null;
+  requestingOfficerId?: string | null;
+  requestingOfficerName?: string;
+  requestingOfficerPosition?: string;
+  approvingAuthorityId?: string | null;
+  approvingAuthorityName?: string;
+  approvingAuthorityPosition?: string;
+  authorityPrefix?: string;
+  loadedUpdatedAt?: Date | null;
+}
+
+/**
+ * Payload for receipt submission/re-upload (driver)
+ */
+export interface ReceiptSubmissionPayload {
+  chargeInvoiceNumber: string;
+  chargeInvoiceDate: string;
+  actualLiters: number;
+  odometerAtRefuel?: number;
+  refuelDate?: string;
+  receiptImageBase64: string;
+  loadedUpdatedAt?: Date | null;
+}
+
+/**
+ * Payload for EMD validation/editing
+ */
+export interface ValidationSubmitPayload {
+  contractId: string;
+  validatedLiters: number;
+  validUntil?: string | null;
+  remarks?: string;
+  loadedUpdatedAt?: Date | null;
 }

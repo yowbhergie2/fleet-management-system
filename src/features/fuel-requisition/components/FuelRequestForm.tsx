@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -7,7 +7,7 @@ import { FileText, Fuel, X } from 'lucide-react';
 import { Button, Input, Textarea, Card, CardHeader, CardTitle, CardContent, Badge } from '@/components/ui';
 import { db } from '@/lib/firebase';
 import { useUser } from '@/stores/authStore';
-import type { Office, ApprovingAuthority, Supplier, FuelRequisition } from '@/types';
+import type { Office, ApprovingAuthority, Supplier, FuelRequisition, FuelRequestSubmitPayload } from '@/types';
 
 const requestSchema = z
   .object({
@@ -66,30 +66,14 @@ interface Vehicle {
 }
 
 interface FuelRequestFormProps {
+  mode?: 'create' | 'edit';
+  requisition?: FuelRequisition | null;
   isSubmitting?: boolean;
-  onSubmit: (data: {
-    officeId: string;
-    vehicleId: string;
-    supplierId: string;
-    passengers: string;
-    inclusiveDateFrom: string;
-    inclusiveDateTo: string;
-    destination: string;
-    purpose: string;
-    requestedLiters: number;
-    vehicleDpwhNumber?: string;
-    vehiclePlateNumber?: string;
-    vehicleDescription?: string;
-    requestingOfficerId?: string | null;
-    requestingOfficerName?: string;
-    requestingOfficerPosition?: string;
-    approvingAuthorityId?: string | null;
-    approvingAuthorityName?: string;
-    approvingAuthorityPosition?: string;
-  }) => void;
+  onSubmit: (data: FuelRequestSubmitPayload) => void;
+  onCancel?: () => void;
 }
 
-export function FuelRequestForm({ isSubmitting, onSubmit }: FuelRequestFormProps) {
+export function FuelRequestForm({ mode = 'create', requisition, isSubmitting, onSubmit, onCancel }: FuelRequestFormProps) {
   const user = useUser();
   const [offices, setOffices] = useState<Office[]>([]);
   const [signatories, setSignatories] = useState<Record<string, { name: string; position: string }>>({});
@@ -106,12 +90,22 @@ export function FuelRequestForm({ isSubmitting, onSubmit }: FuelRequestFormProps
   const [previousPurposes, setPreviousPurposes] = useState<string[]>([]);
   const [showDestinationSuggestions, setShowDestinationSuggestions] = useState(false);
   const [showPurposeSuggestions, setShowPurposeSuggestions] = useState(false);
+  const [loadedUpdatedAt, setLoadedUpdatedAt] = useState<Date | null>(null);
+  const lastPopulatedIdRef = useRef<string | null>(null);
+
+  // Helper function to convert Date to input format - defined before useForm
+  const toDateInput = useCallback((value: Date | string | null | undefined) => {
+    if (!value) return '';
+    const dateValue = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(dateValue.getTime()) ? '' : dateValue.toISOString().split('T')[0];
+  }, []);
 
   const {
     register,
     handleSubmit,
     watch,
     setValue,
+    reset,
     formState: { errors },
   } = useForm<RequestForm>({
     resolver: zodResolver(requestSchema),
@@ -127,6 +121,17 @@ export function FuelRequestForm({ isSubmitting, onSubmit }: FuelRequestFormProps
       purpose: [],
       requestedLiters: '',
     },
+    values: mode === 'edit' && requisition ? {
+      officeId: requisition.officeId || '',
+      vehicleId: requisition.vehicleId || '',
+      supplierId: requisition.supplierId || '',
+      passengers: requisition.passengers || '',
+      inclusiveDateFrom: toDateInput(requisition.inclusiveDateFrom),
+      inclusiveDateTo: toDateInput(requisition.inclusiveDateTo),
+      destination: requisition.destination || '',
+      purpose: requisition.purpose ? requisition.purpose.split('\n').filter(Boolean) : [],
+      requestedLiters: requisition.requestedLiters?.toString() || '',
+    } : undefined,
   });
 
   useEffect(() => {
@@ -135,6 +140,84 @@ export function FuelRequestForm({ isSubmitting, onSubmit }: FuelRequestFormProps
 
   const selectedOfficeId = watch('officeId');
   const selectedVehicleId = watch('vehicleId');
+
+  // Populate defaults when editing or resetting to create mode
+  useEffect(() => {
+    if (mode === 'edit' && requisition) {
+      // Prevent duplicate population for the same requisition
+      if (lastPopulatedIdRef.current === requisition.id) {
+        return;
+      }
+
+      lastPopulatedIdRef.current = requisition.id;
+
+      const purposeLines = requisition.purpose ? requisition.purpose.split('\n').filter(Boolean) : [];
+      const passengerArray =
+        requisition.passengers?.split(',').map((p) => p.trim()).filter(Boolean) || [];
+
+      // Populate form values immediately
+      const formData = {
+        officeId: requisition.officeId || '',
+        vehicleId: requisition.vehicleId || '',
+        supplierId: requisition.supplierId || '',
+        passengers: requisition.passengers || '',
+        inclusiveDateFrom: toDateInput(requisition.inclusiveDateFrom),
+        inclusiveDateTo: toDateInput(requisition.inclusiveDateTo),
+        destination: requisition.destination || '',
+        purpose: purposeLines,
+        requestedLiters: requisition.requestedLiters?.toString() || '',
+      };
+
+      console.log('🔍 Populating form for requisition:', requisition.id);
+      console.log('📝 Form data being set:', formData);
+
+      reset(formData);
+
+      setPassengerList(passengerArray);
+      setPurposeInput('');
+      setValue('purpose', purposeLines, { shouldValidate: true });
+      setLoadedUpdatedAt(requisition.updatedAt || null);
+
+      // Double-check after reset
+      setTimeout(() => {
+        console.log('✅ Form state after reset - requestedLiters:', watch('requestedLiters'));
+        console.log('✅ Form state after reset - inclusiveDateFrom:', watch('inclusiveDateFrom'));
+        console.log('✅ Form state after reset - inclusiveDateTo:', watch('inclusiveDateTo'));
+      }, 100);
+
+      return;
+    }
+
+    if (mode === 'create') {
+      lastPopulatedIdRef.current = null;
+      reset({
+        officeId: '',
+        vehicleId: '',
+        supplierId: '',
+        passengers: '',
+        inclusiveDateFrom: '',
+        inclusiveDateTo: '',
+        destination: '',
+        purpose: [],
+        requestedLiters: '',
+      });
+      setPassengerList([]);
+      setPurposeInput('');
+      setLoadedUpdatedAt(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, requisition?.id]);
+
+  // Re-apply dropdown values after data loads (fixes dropdown population issue)
+  useEffect(() => {
+    if (mode === 'edit' && requisition && offices.length > 0 && vehicles.length > 0 && suppliers.length > 0) {
+      // Ensure dropdown values are set after options are loaded
+      setValue('officeId', requisition.officeId, { shouldValidate: false });
+      setValue('vehicleId', requisition.vehicleId, { shouldValidate: false });
+      setValue('supplierId', requisition.supplierId || '', { shouldValidate: false });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, requisition?.id, offices.length, vehicles.length, suppliers.length]);
 
   // Load offices
   useEffect(() => {
@@ -330,6 +413,7 @@ export function FuelRequestForm({ isSubmitting, onSubmit }: FuelRequestFormProps
   );
   const passengersValue = watch('passengers');
   const purposeValue = watch('purpose') || [];
+  const destinationRegister = register('destination');
 
   const addPassenger = () => {
     const name = passengerInput.trim();
@@ -352,6 +436,7 @@ export function FuelRequestForm({ isSubmitting, onSubmit }: FuelRequestFormProps
       .filter(Boolean)
       .join('\n');
     onSubmit({
+      mode,
       officeId: data.officeId,
       officeName: selectedOffice?.name || '',
       vehicleId: data.vehicleId,
@@ -374,6 +459,7 @@ export function FuelRequestForm({ isSubmitting, onSubmit }: FuelRequestFormProps
       approvingAuthorityName: approvingAuthority?.name || '',
       approvingAuthorityPosition: approvingAuthority?.position || '',
       authorityPrefix: approvingAuthority?.prefix || 'By Authority of the Regional Director:',
+      loadedUpdatedAt,
     });
   };
 
@@ -386,12 +472,26 @@ export function FuelRequestForm({ isSubmitting, onSubmit }: FuelRequestFormProps
               <Fuel className="h-3 w-3 mr-1" />
               Driver
             </Badge>
-            <span className="font-semibold text-gray-900">Create Fuel Request</span>
+            <span className="font-semibold text-gray-900">{mode === 'edit' ? 'Edit Fuel Request' : 'Create Fuel Request'}</span>
           </div>
-          <div className="text-xs text-gray-500 font-medium">Step 1 · Request Details</div>
+          <div className="text-xs text-gray-500 font-medium">
+            {mode === 'edit' && requisition ? (
+              <Badge variant="outline" className="text-gray-700 border-gray-200">
+                Status: {requisition.status}
+              </Badge>
+            ) : (
+              'Step 1 - Request Details'
+            )}
+          </div>
         </CardTitle>
       </CardHeader>
       <CardContent className="pt-6">
+        {mode === 'edit' && requisition && (
+          <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            Editing is allowed while the request is {requisition.status}. Saving will resubmit to EMD if it was
+            returned.
+          </div>
+        )}
         <form onSubmit={handleSubmit(submit)} className="space-y-8">
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             {/* Assignment Card */}
@@ -553,18 +653,27 @@ export function FuelRequestForm({ isSubmitting, onSubmit }: FuelRequestFormProps
                 />
               </div>
               <div className="space-y-2 relative">
-                <label className="block text-sm font-medium text-gray-700">
-                  Destination <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
+                <Input
+                  label="Destination"
                   placeholder="e.g., Tuguegarao City"
-                  className="w-full px-3 py-2 border border-gray-200 rounded-lg shadow-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                  {...register('destination')}
+                  autoComplete="on"
+                  error={errors.destination?.message}
+                  required
+                  toUppercase
+                  {...destinationRegister}
                   onFocus={() => setShowDestinationSuggestions(true)}
                   onBlur={() => setTimeout(() => setShowDestinationSuggestions(false), 200)}
+                  onChange={(e) => {
+                    // force uppercase while keeping RHF in sync
+                    const upper = e.target.value.toUpperCase();
+                    setValue('destination', upper, { shouldValidate: true, shouldTouch: true, shouldDirty: true });
+                    destinationRegister.onChange({
+                      ...e,
+                      target: { ...e.target, value: upper },
+                      currentTarget: { ...e.currentTarget, value: upper },
+                    });
+                  }}
                 />
-                {errors.destination && <p className="text-xs text-red-600">{errors.destination.message}</p>}
 
                 {/* Suggestions dropdown */}
                 {showDestinationSuggestions && previousDestinations.length > 0 && (
@@ -590,12 +699,12 @@ export function FuelRequestForm({ isSubmitting, onSubmit }: FuelRequestFormProps
                 <label className="block text-sm font-medium text-gray-700">Purpose(s) <span className="text-red-500">*</span></label>
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-2 relative">
                   <div className="flex-1 space-y-2 relative">
-                    <label className="block text-sm font-medium text-gray-700">Add Purpose</label>
-                    <input
-                      type="text"
+                    <Input
+                      label="Add Purpose"
                       placeholder="e.g., Official travel for inspection"
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg shadow-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                       value={purposeInput}
+                      toUppercase
+                      showClearButton
                       onChange={(e) => setPurposeInput(e.target.value)}
                       onFocus={() => setShowPurposeSuggestions(true)}
                       onBlur={() => setTimeout(() => setShowPurposeSuggestions(false), 200)}
@@ -626,7 +735,7 @@ export function FuelRequestForm({ isSubmitting, onSubmit }: FuelRequestFormProps
                     variant="primary"
                     className="w-full sm:w-auto"
                     onClick={() => {
-                      const val = purposeInput.trim();
+                      const val = purposeInput.trim().toUpperCase();
                       if (!val) return;
                       const updated = [...purposeValue.filter((p: string) => p.trim() !== ''), val];
                       setValue('purpose', updated, { shouldValidate: true });
@@ -694,9 +803,14 @@ export function FuelRequestForm({ isSubmitting, onSubmit }: FuelRequestFormProps
           )}
 
           <div className="flex justify-end gap-3 pt-2">
+            {mode === 'edit' && onCancel && (
+              <Button variant="outline" type="button" onClick={onCancel} disabled={isSubmitting}>
+                Cancel
+              </Button>
+            )}
             <Button type="submit" isLoading={isSubmitting}>
               <FileText className="h-4 w-4 mr-2" />
-              Submit Request
+              {mode === 'edit' ? 'Save Changes' : 'Submit Request'}
             </Button>
           </div>
         </form>

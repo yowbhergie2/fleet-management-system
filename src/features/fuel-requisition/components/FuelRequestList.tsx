@@ -1,14 +1,24 @@
 import { useState, useMemo } from 'react';
-import { FileText, Printer, Upload, XCircle, Eye, Calendar, Fuel, Building2 } from 'lucide-react';
+import { FileText, Printer, Upload, XCircle, Eye, Calendar, Fuel, Building2, Pencil, Ban, RotateCcw } from 'lucide-react';
 import { Button, Card, CardHeader, CardTitle, CardContent, Badge } from '@/components/ui';
-import type { FuelRequisition } from '@/types';
+import type { FuelRequisition, User } from '@/types';
+import {
+  canDriverEditRequest,
+  canDriverSubmitOrEditReceipt,
+  canEMDReturnReceipt,
+  canSPMSVoidRIS
+} from '@/lib/edit-permissions';
 
 interface FuelRequestListProps {
   requests: FuelRequisition[];
   isLoading?: boolean;
+  currentUser?: User | null;
   onView?: (request: FuelRequisition) => void;
+  onEdit?: (request: FuelRequisition) => void;
   onPrintRIS?: (request: FuelRequisition) => void;
   onSubmitReceipt?: (request: FuelRequisition) => void;
+  onVoid?: (request: FuelRequisition) => void;
+  onReturnReceipt?: (request: FuelRequisition) => void;
   onCancel?: (request: FuelRequisition) => void;
 }
 
@@ -20,6 +30,7 @@ const statusLabels: Record<string, string> = {
   RIS_ISSUED: 'RIS Issued',
   AWAITING_RECEIPT: 'Awaiting Receipt',
   RECEIPT_SUBMITTED: 'Receipt Submitted',
+  RECEIPT_RETURNED: 'Receipt Returned',
   COMPLETED: 'Completed',
   RETURNED: 'Returned',
   REJECTED: 'Rejected',
@@ -34,6 +45,7 @@ const statusColors: Record<string, string> = {
   RIS_ISSUED: 'bg-purple-100 text-purple-700',
   AWAITING_RECEIPT: 'bg-cyan-100 text-cyan-700',
   RECEIPT_SUBMITTED: 'bg-teal-100 text-teal-700',
+  RECEIPT_RETURNED: 'bg-amber-100 text-amber-700',
   COMPLETED: 'bg-emerald-100 text-emerald-700',
   RETURNED: 'bg-orange-100 text-orange-700',
   REJECTED: 'bg-red-100 text-red-700',
@@ -43,9 +55,13 @@ const statusColors: Record<string, string> = {
 export function FuelRequestList({
   requests,
   isLoading,
+  currentUser,
   onView,
+  onEdit,
   onPrintRIS,
   onSubmitReceipt,
+  onVoid,
+  onReturnReceipt,
   onCancel,
 }: FuelRequestListProps) {
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
@@ -60,17 +76,28 @@ export function FuelRequestList({
     return Array.from(statuses).sort();
   }, [requests]);
 
-  const canPrintRIS = (request: FuelRequisition) => {
-    return request.status === 'RIS_ISSUED' || request.status === 'AWAITING_RECEIPT' || request.status === 'RECEIPT_SUBMITTED' || request.status === 'COMPLETED';
-  };
+  const canPrintRIS = (request: FuelRequisition) =>
+    request.status === 'RIS_ISSUED' ||
+    request.status === 'AWAITING_RECEIPT' ||
+    request.status === 'RECEIPT_SUBMITTED' ||
+    request.status === 'COMPLETED';
 
   const canSubmitReceipt = (request: FuelRequisition) => {
-    return request.status === 'RIS_ISSUED' || request.status === 'AWAITING_RECEIPT';
+    if (!currentUser || !onSubmitReceipt) return false;
+    return canDriverSubmitOrEditReceipt(request, currentUser);
   };
 
-  const canCancel = (request: FuelRequisition) => {
-    return request.status === 'DRAFT' || request.status === 'PENDING_EMD' || request.status === 'RETURNED';
-  };
+  const canCancel = (request: FuelRequisition) =>
+    request.status === 'DRAFT' || request.status === 'PENDING_EMD' || request.status === 'RETURNED';
+
+  const canEdit = (request: FuelRequisition) =>
+    !!currentUser && !!onEdit && canDriverEditRequest(request, currentUser);
+
+  const canVoid = (request: FuelRequisition) =>
+    !!currentUser && !!onVoid && canSPMSVoidRIS(request, currentUser);
+
+  const canReturnReceipt = (request: FuelRequisition) =>
+    !!currentUser && !!onReturnReceipt && canEMDReturnReceipt(request, currentUser);
 
   return (
     <Card className="shadow-lg border-0">
@@ -143,7 +170,6 @@ export function FuelRequestList({
                       <th className="px-4 py-3">Vehicle</th>
                       <th className="px-4 py-3">Supplier</th>
                       <th className="px-4 py-3">Liters</th>
-                      <th className="px-4 py-3">Destination</th>
                       <th className="px-4 py-3 text-right">Actions</th>
                     </tr>
                   </thead>
@@ -168,9 +194,14 @@ export function FuelRequestList({
                         </td>
                         <td className="px-4 py-3">{request.supplierName || '—'}</td>
                         <td className="px-4 py-3">{request.validatedLiters || request.requestedLiters} L</td>
-                        <td className="px-4 py-3">{request.destination}</td>
                         <td className="px-4 py-3">
                           <div className="flex justify-end gap-2">
+                            {onEdit && canEdit(request) && (
+                              <Button variant="outline" size="sm" onClick={() => onEdit(request)}>
+                                <Pencil className="h-4 w-4 mr-1" />
+                                Edit
+                              </Button>
+                            )}
                             {onView && (
                               <Button variant="outline" size="sm" onClick={() => onView(request)}>
                                 <Eye className="h-4 w-4 mr-1" />
@@ -186,7 +217,26 @@ export function FuelRequestList({
                             {onSubmitReceipt && canSubmitReceipt(request) && (
                               <Button variant="primary" size="sm" onClick={() => onSubmitReceipt(request)}>
                                 <Upload className="h-4 w-4 mr-1" />
-                                Submit Receipt
+                                {request.status === 'RECEIPT_SUBMITTED' || request.status === 'RECEIPT_RETURNED'
+                                  ? 'Edit Receipt'
+                                  : 'Submit Receipt'}
+                              </Button>
+                            )}
+                            {onReturnReceipt && canReturnReceipt(request) && (
+                              <Button variant="outline" size="sm" onClick={() => onReturnReceipt(request)}>
+                                <RotateCcw className="h-4 w-4 mr-1" />
+                                Return Receipt
+                              </Button>
+                            )}
+                            {onVoid && canVoid(request) && (
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                onClick={() => onVoid(request)}
+                                className="bg-red-600 hover:bg-red-700 text-white"
+                              >
+                                <Ban className="h-4 w-4 mr-1" />
+                                Void RIS
                               </Button>
                             )}
                             {onCancel && canCancel(request) && (
@@ -246,14 +296,16 @@ export function FuelRequestList({
                             </span>
                           </div>
                         </div>
-
-                        <div className="text-xs text-gray-600">
-                          <span className="font-semibold">Destination:</span> {request.destination}
-                        </div>
                       </div>
 
                       {/* Right: Actions */}
                       <div className="flex flex-wrap gap-2">
+                        {onEdit && canEdit(request) && (
+                          <Button variant="outline" size="sm" onClick={() => onEdit(request)}>
+                            <Pencil className="h-4 w-4 mr-1" />
+                            Edit
+                          </Button>
+                        )}
                         {onView && (
                           <Button variant="outline" size="sm" onClick={() => onView(request)}>
                             <Eye className="h-4 w-4 mr-1" />
@@ -271,7 +323,28 @@ export function FuelRequestList({
                         {onSubmitReceipt && canSubmitReceipt(request) && (
                           <Button variant="primary" size="sm" onClick={() => onSubmitReceipt(request)}>
                             <Upload className="h-4 w-4 mr-1" />
-                            Submit Receipt
+                            {request.status === 'RECEIPT_SUBMITTED' || request.status === 'RECEIPT_RETURNED'
+                              ? 'Edit Receipt'
+                              : 'Submit Receipt'}
+                          </Button>
+                        )}
+
+                        {onReturnReceipt && canReturnReceipt(request) && (
+                          <Button variant="outline" size="sm" onClick={() => onReturnReceipt(request)}>
+                            <RotateCcw className="h-4 w-4 mr-1" />
+                            Return Receipt
+                          </Button>
+                        )}
+
+                        {onVoid && canVoid(request) && (
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => onVoid(request)}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                          >
+                            <Ban className="h-4 w-4 mr-1" />
+                            Void RIS
                           </Button>
                         )}
 
