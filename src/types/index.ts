@@ -224,3 +224,227 @@ export interface TripTicketFormData {
   approvingAuthorityPosition?: string;
   recommendingOfficerPosition?: string;
 }
+
+// ============================================================================
+// FUEL REQUISITION MODULE TYPES
+// ============================================================================
+
+/**
+ * Fuel requisition status
+ */
+export type FuelRequisitionStatus =
+  | 'DRAFT'
+  | 'PENDING_EMD'
+  | 'EMD_VALIDATED'
+  | 'PENDING_ISSUANCE'
+  | 'RIS_ISSUED'
+  | 'AWAITING_RECEIPT'
+  | 'RECEIPT_SUBMITTED'
+  | 'COMPLETED'
+  | 'RETURNED'
+  | 'REJECTED'
+  | 'CANCELLED';
+
+/**
+ * Contract status
+ */
+export type ContractStatus = 'ACTIVE' | 'EXHAUSTED';
+
+/**
+ * Contract transaction type
+ */
+export type ContractTransactionType = 'INITIAL' | 'DEDUCTION' | 'ADJUSTMENT';
+
+/**
+ * Supplier interface
+ */
+export interface Supplier {
+  id: string;
+  name: string;
+  address: string;
+  contactPerson: string | null;
+  contactNumber: string | null;
+  status: 'ACTIVE' | 'INACTIVE';
+  organizationId: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * Contract interface
+ */
+export interface Contract {
+  id: string;
+  contractNumber: string;
+  supplierId: string;
+  supplierName: string;
+  totalAmount: number;
+  remainingBalance: number;
+  startDate: Date;
+  status: ContractStatus;
+  exhaustedAt: Date | null;
+  organizationId: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * Fuel price interface
+ */
+export interface FuelPrice {
+  id: string;
+  fuelType: 'DIESEL' | 'GASOLINE' | 'PREMIUM';
+  pricePerLiter: number;
+  effectiveDate: Date;
+  isCurrent: boolean;
+  updatedBy: string;
+  updatedByName: string;
+  organizationId: string;
+  createdAt: Date;
+}
+
+/**
+ * Fuel requisition interface
+ */
+export interface FuelRequisition {
+  id: string;
+  risNumber: string | null;
+  refNumber: number | null;
+
+  // Office & Signatories
+  officeId: string;
+  officeName: string;
+  requestingOfficerId: string;
+  requestingOfficerName: string;
+  requestingOfficerPosition: string;
+  approvingAuthorityId: string;
+  approvingAuthorityName: string;
+  approvingAuthorityPosition: string;
+  authorityPrefix: string;
+  issuanceSignatoryId: string | null;
+  issuanceSignatoryName: string | null;
+  issuanceSignatoryPosition: string | null;
+
+  // Vehicle & Driver
+  vehicleId: string;
+  dpwhNumber: string;
+  vehicleDescription: string;
+  plateNumber: string;
+  fuelType: 'DIESEL' | 'GASOLINE' | 'PREMIUM';
+  driverId: string;
+  driverName: string;
+
+  // Trip Details
+  passengers: string;
+  inclusiveDateFrom: Date;
+  inclusiveDateTo: Date;
+  destination: string;
+  purpose: string;
+
+  // Fuel Request
+  requestedLiters: number;
+  validatedLiters: number | null;
+  actualLiters: number | null;
+
+  // Contract & Pricing
+  contractId: string | null;
+  contractNumber: string | null;
+  supplierId: string | null;
+  supplierName: string | null;
+  priceAtIssuance: number | null;
+  priceAtPurchase: number | null;
+  totalAmount: number | null;
+
+  // Validity
+  validUntil: Date | null;
+
+  // Status
+  status: FuelRequisitionStatus;
+
+  // EMD Validation
+  emdValidatedBy: string | null;
+  emdValidatedByName: string | null;
+  emdValidatedAt: Date | null;
+  emdRemarks: string | null;
+
+  // SPMS Issuance
+  issuedBy: string | null;
+  issuedByName: string | null;
+  issuedAt: Date | null;
+
+  // Last Issuance
+  lastIssuance: {
+    risNumber: string;
+    issuanceDate: Date;
+    quantity: number;
+    station: string;
+    chargeInvoice: string;
+    invoiceDate: Date;
+  } | null;
+
+  // Receipt
+  chargeInvoiceNumber: string | null;
+  chargeInvoiceDate: Date | null;
+  receiptUrl: string | null;
+  refuelDate: Date | null;
+  odometerAtRefuel: number | null;
+
+  // Verification
+  verifiedBy: string | null;
+  verifiedByName: string | null;
+  verifiedAt: Date | null;
+  verificationRemarks: string | null;
+
+  // Metadata
+  createdBy: string;
+  createdByName: string;
+  organizationId: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * Contract transaction interface
+ */
+export interface ContractTransaction {
+  id: string;
+  contractId: string;
+  requisitionId: string | null;
+  risNumber: string | null;
+  transactionType: ContractTransactionType;
+  amount: number;
+  liters: number | null;
+  pricePerLiter: number | null;
+  balanceBefore: number;
+  balanceAfter: number;
+  remarks: string | null;
+  createdBy: string;
+  createdByName: string;
+  organizationId: string;
+  createdAt: Date;
+}
+
+/**
+ * Organization settings interface
+ */
+export interface OrganizationSettings {
+  organizationId: string;
+  issuanceSignatoryId: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * Form data for creating fuel request
+ */
+export interface FuelRequestFormData {
+  officeId: string;
+  vehicleId: string;
+  supplierId: string;
+  passengers: string;
+  inclusiveDateFrom: string;
+  inclusiveDateTo: string;
+  destination: string;
+  purpose: string;
+  requestedLiters: number;
+}

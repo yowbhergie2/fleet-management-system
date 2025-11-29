@@ -164,6 +164,61 @@ function App() {
           </ProtectedRoute>
         }
       />
+
+      {/* Fuel Requisition Module Routes - To be implemented */}
+      <Route
+        path="/fuel-requisitions"
+        element={
+          <ProtectedRoute allowedRoles={['admin', 'driver', 'spms', 'emd']}>
+            <DashboardLayout>
+              <div className="p-8">
+                <h1 className="text-2xl font-bold">Fuel Requisitions</h1>
+                <p className="text-gray-600 mt-2">Coming soon...</p>
+              </div>
+            </DashboardLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/suppliers"
+        element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <DashboardLayout>
+              <div className="p-8">
+                <h1 className="text-2xl font-bold">Suppliers</h1>
+                <p className="text-gray-600 mt-2">Coming soon...</p>
+              </div>
+            </DashboardLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/contracts"
+        element={
+          <ProtectedRoute allowedRoles={['admin', 'spms']}>
+            <DashboardLayout>
+              <div className="p-8">
+                <h1 className="text-2xl font-bold">Contracts</h1>
+                <p className="text-gray-600 mt-2">Coming soon...</p>
+              </div>
+            </DashboardLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/fuel-prices"
+        element={
+          <ProtectedRoute allowedRoles={['admin', 'spms']}>
+            <DashboardLayout>
+              <div className="p-8">
+                <h1 className="text-2xl font-bold">Fuel Prices</h1>
+                <p className="text-gray-600 mt-2">Coming soon...</p>
+              </div>
+            </DashboardLayout>
+          </ProtectedRoute>
+        }
+      />
+
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

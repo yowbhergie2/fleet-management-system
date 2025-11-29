@@ -302,3 +302,74 @@ export function canTransitionStatus(
   const allowedTransitions = getAllowedStatusTransitions(currentStatus, user.role);
   return allowedTransitions.includes(newStatus);
 }
+
+// ============================================================================
+// FUEL REQUISITION MODULE PERMISSIONS
+// ============================================================================
+
+/**
+ * Permission actions for fuel requisitions
+ */
+export type FuelRequisitionAction =
+  | 'create_request'
+  | 'view_own_requests'
+  | 'view_all_requests'
+  | 'validate_request'
+  | 'issue_ris'
+  | 'submit_receipt'
+  | 'verify_receipt'
+  | 'manage_suppliers'
+  | 'manage_contracts'
+  | 'manage_prices'
+  | 'print_ris'
+  | 'cancel_request';
+
+/**
+ * RBAC Permission Matrix for Fuel Requisitions
+ */
+const FUEL_REQUISITION_PERMISSIONS: Record<UserRole, FuelRequisitionAction[]> = {
+  driver: [
+    'create_request',
+    'view_own_requests',
+    'submit_receipt',
+    'print_ris',
+    'cancel_request',
+  ],
+  emd: [
+    'view_all_requests',
+    'validate_request',
+    'verify_receipt',
+  ],
+  spms: [
+    'view_all_requests',
+    'issue_ris',
+    'manage_contracts',
+    'manage_prices',
+    'print_ris',
+  ],
+  admin: [
+    'create_request',
+    'view_own_requests',
+    'view_all_requests',
+    'validate_request',
+    'issue_ris',
+    'submit_receipt',
+    'verify_receipt',
+    'manage_suppliers',
+    'manage_contracts',
+    'manage_prices',
+    'print_ris',
+    'cancel_request',
+  ],
+};
+
+/**
+ * Check if user has fuel requisition permission
+ */
+export function canPerformFuelAction(
+  user: User | null,
+  action: FuelRequisitionAction
+): boolean {
+  if (!user || !user.isActive) return false;
+  return FUEL_REQUISITION_PERMISSIONS[user.role]?.includes(action) ?? false;
+}

@@ -9,7 +9,11 @@ import {
   ChevronLeft,
   ChevronRight,
   User,
-  X
+  X,
+  Fuel,
+  Building2,
+  FileContract,
+  DollarSign,
 } from 'lucide-react';
 import { logout } from '@/lib/auth';
 import { useUser } from '@/stores/authStore';
@@ -41,6 +45,14 @@ export function Sidebar({ isCollapsed, isOpen, setIsCollapsed, onClose }: Sideba
   const menuItems = [
     { icon: Home, label: 'Dashboard', path: '/dashboard', roles: ['admin', 'driver', 'spms', 'emd'] },
     { icon: FileText, label: 'Trip Tickets', path: '/trip-tickets', roles: ['admin', 'driver', 'spms'] },
+
+    // Fuel Requisition Module
+    { icon: Fuel, label: 'Fuel Requisitions', path: '/fuel-requisitions', roles: ['admin', 'driver', 'spms', 'emd'] },
+    { icon: Building2, label: 'Suppliers', path: '/suppliers', roles: ['admin'] },
+    { icon: FileContract, label: 'Contracts', path: '/contracts', roles: ['admin', 'spms'] },
+    { icon: DollarSign, label: 'Fuel Prices', path: '/fuel-prices', roles: ['admin', 'spms'] },
+
+    // Admin/System
     { icon: Truck, label: 'Vehicles', path: '/vehicles', roles: ['admin'] },
     { icon: Database, label: 'Master Data', path: '/master-data', roles: ['admin'] },
     { icon: Users, label: 'Users', path: '/admin/users', roles: ['admin'] },

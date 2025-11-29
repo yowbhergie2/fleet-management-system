@@ -28,6 +28,17 @@ export const collections = {
   distanceMatrix: collection(db, 'distance_matrix'),
   serialNumbers: collection(db, 'serial_numbers'),
   notifications: collection(db, 'notifications'),
+  signatories: collection(db, 'signatories'),
+  offices: collection(db, 'offices'),
+  approvingAuthorities: collection(db, 'approving_authorities'),
+
+  // NEW: Fuel Requisition Module collections
+  organizationSettings: collection(db, 'organization_settings'),
+  suppliers: collection(db, 'suppliers'),
+  contracts: collection(db, 'contracts'),
+  fuelPrices: collection(db, 'fuel_prices'),
+  fuelRequisitions: collection(db, 'fuel_requisitions'),
+  contractTransactions: collection(db, 'contract_transactions'),
 };
 
 // Helper: Convert Firestore Timestamp to Date
